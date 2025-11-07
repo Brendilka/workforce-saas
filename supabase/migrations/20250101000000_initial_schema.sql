@@ -1,12 +1,12 @@
 -- Initial schema for workforce SaaS platform
 -- Multi-tenant architecture with RLS (Row Level Security)
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Note: pgcrypto extension is enabled by default in Supabase
+-- It provides gen_random_uuid() which is preferred over uuid_generate_v4()
 
 -- Create tenants table
 CREATE TABLE IF NOT EXISTS public.tenants (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     slug TEXT UNIQUE NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS public.tenants (
 
 -- Create departments table
 CREATE TABLE IF NOT EXISTS public.departments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.departments (
 
 -- Create custom field definitions table
 CREATE TABLE IF NOT EXISTS public.custom_field_definitions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     field_name TEXT NOT NULL,
     field_type TEXT NOT NULL CHECK (field_type IN ('text', 'number', 'date', 'boolean', 'select')),

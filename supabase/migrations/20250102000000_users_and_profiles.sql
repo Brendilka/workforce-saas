@@ -18,7 +18,7 @@ CREATE TYPE employment_status AS ENUM ('active', 'on_leave', 'terminated');
 
 -- Create profiles table (HR data from imports)
 CREATE TABLE IF NOT EXISTS public.profiles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
     tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     email TEXT NOT NULL,

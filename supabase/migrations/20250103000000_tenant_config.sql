@@ -1,7 +1,7 @@
 -- Tenant configuration table for HR import and page visibility settings
 
 CREATE TABLE IF NOT EXISTS public.tenant_config (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE UNIQUE,
 
     -- HR Import configuration
