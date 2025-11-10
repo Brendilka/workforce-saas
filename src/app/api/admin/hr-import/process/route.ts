@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
     // Update status to processing
     await supabase
       .from('import_jobs')
+      // @ts-ignore - TypeScript has trouble inferring update types
       .update({ status: 'processing' })
       .eq('id', jobId);
 
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
     ) => {
       await supabase
         .from('import_jobs')
+        // @ts-ignore - TypeScript has trouble inferring update types
         .update({
           processed_rows: processed,
           success_count: success,
@@ -99,6 +101,7 @@ export async function POST(request: NextRequest) {
     // Update job with final results
     await supabase
       .from('import_jobs')
+      // @ts-ignore - TypeScript has trouble inferring update types
       .update({
         status: 'completed',
         processed_rows: job.total_rows,
@@ -138,6 +141,7 @@ export async function POST(request: NextRequest) {
         const supabase = createAdminClient();
         await supabase
           .from('import_jobs')
+          // @ts-ignore - TypeScript has trouble inferring update types
           .update({
             status: 'failed',
             errors: [

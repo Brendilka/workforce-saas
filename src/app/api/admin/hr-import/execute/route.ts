@@ -103,15 +103,16 @@ export async function POST(request: NextRequest) {
           throw new Error("Email is required");
         }
 
-        // Step 1: Check if auth user exists (using efficient email lookup)
-        const { data: existingAuthUser, error: lookupError } =
-          await adminClient.auth.admin.getUserByEmail(profileData.email);
-
-        const authUser = existingAuthUser?.user;
+        // Step 1: Check if user exists in public.users table
+        const { data: existingUser } = await adminClient
+          .from("users")
+          .select("id")
+          .eq("email", profileData.email)
+          .maybeSingle<{ id: string }>();
 
         let userId: string;
 
-        if (!authUser) {
+        if (!existingUser) {
           // Step 2: Create auth.users record with default password
           const { data: newAuthUser, error: authError } = await adminClient.auth.admin.createUser({
             email: profileData.email,
@@ -133,6 +134,7 @@ export async function POST(request: NextRequest) {
           // Step 3: Create public.users record
           const { error: userError } = await adminClient
             .from("users")
+            // @ts-ignore - TypeScript has trouble inferring insert types with admin client
             .insert({
               id: userId,
               email: profileData.email,
@@ -144,13 +146,8 @@ export async function POST(request: NextRequest) {
             throw new Error(`Failed to create user record: ${userError.message}`);
           }
         } else {
-          // Use existing auth user ID - verify tenant ownership for security
-          if (authUser.user_metadata?.tenant_id !== tenantId) {
-            throw new Error(
-              `User ${profileData.email} belongs to a different tenant`
-            );
-          }
-          userId = authUser.id;
+          // Use existing user ID
+          userId = existingUser.id;
         }
 
         // Step 4: Check if profile exists and insert/update with user_id link

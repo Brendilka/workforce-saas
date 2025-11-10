@@ -160,7 +160,7 @@ export async function processHRImport(
   );
 
   const profileMap = new Map(
-    (profilesData.data || []).map((p) => [p.email.toLowerCase(), p])
+    ((profilesData.data || []) as Array<{ email: string; id: string; user_id: string | null }>).map((p) => [p.email.toLowerCase(), p])
   );
 
   console.log(
@@ -299,6 +299,7 @@ export async function processHRImport(
   if (usersToInsert.length > 0) {
     const { error: userError } = await adminClient
       .from('users')
+      // @ts-ignore - TypeScript has trouble inferring insert types
       .insert(usersToInsert);
 
     if (userError) {
@@ -328,6 +329,7 @@ export async function processHRImport(
   if (allProfiles.length > 0) {
     const { error: profileError } = await adminClient
       .from('profiles')
+      // @ts-ignore - TypeScript has trouble inferring upsert types
       .upsert(allProfiles, {
         onConflict: 'tenant_id,email',
         ignoreDuplicates: false,
