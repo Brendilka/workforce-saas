@@ -91,6 +91,40 @@ export interface FieldGroup {
   fields: string[];
 }
 
+// Import Job types
+export type ImportJobStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+export interface ImportJobError {
+  row: number;
+  email?: string;
+  message: string;
+}
+
+export interface ImportJobResult {
+  success: number;
+  failed: number;
+  duration: number;
+}
+
+export interface ImportJob {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  status: ImportJobStatus;
+  total_rows: number;
+  processed_rows: number;
+  success_count: number;
+  failed_count: number;
+  auth_created_count: number;
+  errors: ImportJobError[];
+  config: HRImportConfig;
+  data: any[]; // Temporary storage of CSV data
+  result: ImportJobResult | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
 // Database schema type for Supabase client
 export interface Database {
   public: {
@@ -128,6 +162,11 @@ export interface Database {
           hr_import_config?: HRImportConfig | null;
           field_visibility_config?: FieldVisibilityConfig | null;
         };
+      };
+      import_jobs: {
+        Row: ImportJob;
+        Insert: Omit<ImportJob, 'id' | 'processed_rows' | 'success_count' | 'failed_count' | 'auth_created_count' | 'errors' | 'result' | 'created_at' | 'updated_at' | 'completed_at'>;
+        Update: Partial<Omit<ImportJob, 'id' | 'tenant_id' | 'user_id' | 'created_at'>>;
       };
     };
   };

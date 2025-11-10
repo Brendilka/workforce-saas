@@ -73,13 +73,18 @@ export async function proxy(request: NextRequest) {
   const isLoginPage = pathname === '/login';
   const isPublicRoute = pathname === '/' || isLoginPage;
 
+  // Internal API endpoints (server-to-server only, no auth required)
+  const isInternalEndpoint = pathname === '/api/admin/hr-import/process';
+
   // If no session and trying to access protected route, redirect to login
-  if (!session && !isPublicRoute) {
+  // (but allow internal endpoints to pass through)
+  if (!session && !isPublicRoute && !isInternalEndpoint) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
   // Validate JWT claims for authenticated users accessing protected routes
-  if (session && !isPublicRoute) {
+  // (skip validation for internal endpoints)
+  if (session && !isPublicRoute && !isInternalEndpoint) {
     const tenantId = session.user.user_metadata?.tenant_id;
     const role = session.user.user_metadata?.role;
 
@@ -122,7 +127,8 @@ export async function proxy(request: NextRequest) {
   }
 
   // Check role-based access for protected routes
-  if (session && !isPublicRoute) {
+  // (skip for internal endpoints)
+  if (session && !isPublicRoute && !isInternalEndpoint) {
     console.log("Checking role-based access for protected route...");
     const { data: userData, error: roleError } = await supabase
       .from('users')
