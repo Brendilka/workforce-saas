@@ -45,6 +45,7 @@ export function CSVImporter({ config, departments, tenantId }: CSVImporterProps)
   const [importResult, setImportResult] = useState<{
     success: number;
     failed: number;
+    authCreated: number;
     errors: string[];
   } | null>(null);
 
@@ -117,6 +118,11 @@ export function CSVImporter({ config, departments, tenantId }: CSVImporterProps)
     }
 
     setIsImporting(true);
+
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
     try {
       const response = await fetch("/api/admin/hr-import/execute", {
         method: "POST",
@@ -127,7 +133,10 @@ export function CSVImporter({ config, departments, tenantId }: CSVImporterProps)
           config,
           departments,
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const error = await response.json();
@@ -137,7 +146,7 @@ export function CSVImporter({ config, departments, tenantId }: CSVImporterProps)
       const result = await response.json();
       setImportResult(result);
       toast.success(
-        `Import completed: ${result.success} succeeded, ${result.failed} failed`
+        `Import completed: ${result.success} succeeded, ${result.failed} failed, ${result.authCreated} auth accounts created`
       );
 
       // Clear file input
@@ -145,10 +154,16 @@ export function CSVImporter({ config, departments, tenantId }: CSVImporterProps)
       setParsedData([]);
       setValidationErrors([]);
     } catch (error) {
+      clearTimeout(timeoutId);
       console.error("Error importing data:", error);
-      toast.error(
-        error instanceof Error ? error.message : "Failed to import data"
-      );
+
+      if (error instanceof Error && error.name === 'AbortError') {
+        toast.error("Import request timed out. Please try with fewer rows or contact support.");
+      } else {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to import data"
+        );
+      }
     } finally {
       setIsImporting(false);
     }
@@ -309,6 +324,16 @@ export function CSVImporter({ config, departments, tenantId }: CSVImporterProps)
               <p className="text-sm">
                 <strong>Failed:</strong> {importResult.failed} rows
               </p>
+              <p className="text-sm">
+                <strong>Auth Accounts Created:</strong> {importResult.authCreated} new login accounts
+              </p>
+              {importResult.authCreated > 0 && (
+                <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md">
+                  <p className="text-sm text-blue-900 dark:text-blue-100">
+                    <strong>Note:</strong> New employees can now log in with their email and default password: <code className="font-mono font-bold">password123</code>
+                  </p>
+                </div>
+              )}
               {importResult.errors.length > 0 && (
                 <div className="mt-4">
                   <p className="text-sm font-semibold mb-2">Errors:</p>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, getUser, getUserRole } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { HRImportConfig } from "@/lib/types/database";
 
 interface ParsedRow {
@@ -12,6 +13,9 @@ interface ImportRequest {
   config: HRImportConfig;
   departments: Array<{ id: string; name: string }>;
 }
+
+// Default password for newly imported users
+const DEFAULT_PASSWORD = "password123";
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,15 +37,18 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
+    const adminClient = createAdminClient();
     const tenantId = user.user_metadata.tenant_id;
 
     let successCount = 0;
     let failedCount = 0;
+    let authCreatedCount = 0;
     const errors: string[] = [];
 
     // Process each row
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
+      console.log(`Processing row ${i + 1} of ${data.length}`);
       try {
         // Map CSV fields to profile fields
         const profileData: {
@@ -96,7 +103,57 @@ export async function POST(request: NextRequest) {
           throw new Error("Email is required");
         }
 
-        // Check if profile already exists (by email)
+        // Step 1: Check if auth user exists (using efficient email lookup)
+        const { data: existingAuthUser, error: lookupError } =
+          await adminClient.auth.admin.getUserByEmail(profileData.email);
+
+        const authUser = existingAuthUser?.user;
+
+        let userId: string;
+
+        if (!authUser) {
+          // Step 2: Create auth.users record with default password
+          const { data: newAuthUser, error: authError } = await adminClient.auth.admin.createUser({
+            email: profileData.email,
+            password: DEFAULT_PASSWORD,
+            email_confirm: true, // Auto-confirm email
+            user_metadata: {
+              tenant_id: tenantId,
+              role: "employee",
+            },
+          });
+
+          if (authError || !newAuthUser.user) {
+            throw new Error(`Failed to create auth user: ${authError?.message || "Unknown error"}`);
+          }
+
+          userId = newAuthUser.user.id;
+          authCreatedCount++;
+
+          // Step 3: Create public.users record
+          const { error: userError } = await adminClient
+            .from("users")
+            .insert({
+              id: userId,
+              email: profileData.email,
+              role: "employee",
+              tenant_id: tenantId,
+            });
+
+          if (userError) {
+            throw new Error(`Failed to create user record: ${userError.message}`);
+          }
+        } else {
+          // Use existing auth user ID - verify tenant ownership for security
+          if (authUser.user_metadata?.tenant_id !== tenantId) {
+            throw new Error(
+              `User ${profileData.email} belongs to a different tenant`
+            );
+          }
+          userId = authUser.id;
+        }
+
+        // Step 4: Check if profile exists and insert/update with user_id link
         const { data: existingProfile } = await supabase
           .from("profiles")
           .select("id")
@@ -104,12 +161,17 @@ export async function POST(request: NextRequest) {
           .eq("email", profileData.email)
           .maybeSingle<{ id: string }>();
 
+        const profileDataWithUser = {
+          ...profileData,
+          user_id: userId,
+        };
+
         if (existingProfile) {
           // Update existing profile
           const { error: updateError } = await supabase
             .from("profiles")
             // @ts-ignore - TypeScript has trouble inferring update types
-            .update(profileData)
+            .update(profileDataWithUser)
             .eq("id", existingProfile.id);
 
           if (updateError) throw updateError;
@@ -118,7 +180,7 @@ export async function POST(request: NextRequest) {
           const { error: insertError } = await supabase
             .from("profiles")
             // @ts-ignore - TypeScript has trouble inferring insert types
-            .insert(profileData);
+            .insert(profileDataWithUser);
 
           if (insertError) throw insertError;
         }
@@ -135,8 +197,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: successCount,
       failed: failedCount,
+      authCreated: authCreatedCount,
       errors: errors.slice(0, 20), // Limit to first 20 errors to avoid huge responses
-      message: `Import completed: ${successCount} succeeded, ${failedCount} failed`,
+      message: `Import completed: ${successCount} succeeded, ${failedCount} failed, ${authCreatedCount} auth accounts created`,
     });
   } catch (error) {
     console.error("Unexpected error in POST /api/admin/hr-import/execute:", error);
