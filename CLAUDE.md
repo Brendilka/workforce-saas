@@ -84,7 +84,20 @@ import { createClient } from "@/lib/supabase/client";
 ### TypeScript Types
 All database types are in `src/lib/types/database.ts`. The `Database` interface matches the Supabase schema.
 
+## Deployment to Cloud
+
+For deploying to Supabase Cloud, see **DEPLOYMENT.md**. Key requirements:
+- Custom JWT hook must be enabled (migration + config)
+- Realtime must be enabled for `import_jobs` table
+- See `scripts/deploy-to-cloud.sh` and `scripts/enable-hook-api.js`
+
 ## Critical Implementation Details
+
+### Custom JWT Claims (Required for RLS)
+All RLS policies depend on `tenant_id` being in the JWT claims. This requires:
+1. Migration `20250111000000_custom_jwt_hook.sql` applied
+2. Auth hook enabled in `config.toml` (local) or dashboard (cloud)
+3. See DEPLOYMENT.md for cloud setup instructions
 
 ### Role-Based Access Control
 Middleware (`src/middleware.ts`) enforces:
