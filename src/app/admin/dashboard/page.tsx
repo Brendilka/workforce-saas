@@ -37,6 +37,13 @@ const adminFeatures = [
     disabled: false,
   },
   {
+    title: "Business Structure",
+    href: "/admin/business-structure",
+    icon: Building2,
+    description: "Manage organizational hierarchy and structure",
+    disabled: false,
+  },
+  {
     title: "User Management",
     href: "/admin/users",
     icon: Users,

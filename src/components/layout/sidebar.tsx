@@ -16,8 +16,7 @@ import {
   LogOut,
   ChevronRight,
   Menu,
-  X,
-  Building2
+  X
 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
@@ -76,24 +75,6 @@ const employeeNavItems = [
   },
 ];
 
-const adminNavItems = [
-  {
-    title: "Dashboard",
-    href: "/admin/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Business Structure",
-    href: "/admin/business-structure",
-    icon: Building2,
-  },
-  {
-    title: "User Management",
-    href: "/admin/users",
-    icon: Users,
-  },
-];
-
 const helpNavItems = [
   {
     title: "Help & Support",
@@ -113,7 +94,7 @@ export function Sidebar({ userRole, userName, userInitials }: SidebarProps) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  const navItems = userRole === "admin" ? adminNavItems : userRole === "employee" ? employeeNavItems : [];
+  const navItems = userRole === "employee" ? employeeNavItems : [];
 
   const handleLogout = () => {
     startTransition(() => {
