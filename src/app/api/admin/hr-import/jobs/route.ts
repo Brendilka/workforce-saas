@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Return simplified job info (exclude large data field)
-    const jobList = (jobs || []).map((job: ImportJob) => ({
+    const jobList = (jobs || []).map((job) => ({
       id: job.id,
       status: job.status,
       totalRows: job.total_rows,
