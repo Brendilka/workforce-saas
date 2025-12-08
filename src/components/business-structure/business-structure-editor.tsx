@@ -203,7 +203,7 @@ export function BusinessStructureEditor({
       setUnits(redistributedUnits);
     }
     setShouldRedistribute(false);
-  }, [units.length, shouldRedistribute]);
+  }, [shouldRedistribute]);
 
   const handleAddLevel = () => {
     setShowLevelPrompt(true);
@@ -290,7 +290,7 @@ export function BusinessStructureEditor({
 
       if (editingUnit.id.startsWith("temp-")) {
         setUnits([...units, newUnit]);
-        setShouldRedistribute(true);
+        // Don't redistribute - let user position manually
       } else {
         setUnits(units.map((u) => (u.id === editingUnit.id ? newUnit : u)));
         // Only redistribute if level changed
@@ -310,7 +310,6 @@ export function BusinessStructureEditor({
 
   const handleDeleteUnit = (unitId: string) => {
     setUnits(units.filter((u) => u.id !== unitId));
-    setShouldRedistribute(true);
     setRelationships(
       relationships.filter(
         (r) => r.parentId !== unitId && r.childId !== unitId

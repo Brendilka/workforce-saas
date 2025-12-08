@@ -113,7 +113,16 @@ export function BusinessStructurePageClient() {
       if (error) throw error;
 
       // Parse description for editor
-      setEditingStructure(data);
+      let parsedDescription = "";
+      if (data.description) {
+        try {
+          const parsed = JSON.parse(data.description);
+          parsedDescription = parsed.description || "";
+        } catch (e) {
+          parsedDescription = data.description;
+        }
+      }
+      setEditingStructure({ ...data, actualDescription: parsedDescription } as any);
       setShowCreateDialog(false);
       setShowEditor(true);
       setNewStructureName("");
