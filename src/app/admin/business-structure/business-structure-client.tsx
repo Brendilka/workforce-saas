@@ -113,17 +113,7 @@ export function BusinessStructurePageClient() {
       if (error) throw error;
 
       // Parse description for editor
-      let actualDescription = "";
-      if (data.description) {
-        try {
-          const parsed = JSON.parse(data.description);
-          actualDescription = parsed.description || "";
-        } catch (e) {
-          actualDescription = data.description;
-        }
-      }
-
-      setEditingStructure({ ...data, actualDescription });
+      setEditingStructure(data);
       setShowCreateDialog(false);
       setShowEditor(true);
       setNewStructureName("");
@@ -189,7 +179,7 @@ export function BusinessStructurePageClient() {
         }
       }
 
-      setEditingStructure({ ...structure, units, relationships, levelNames, actualDescription });
+      setEditingStructure({ ...structure, units, relationships, levelNames });
       setShowEditor(true);
     } catch (error) {
       console.error("Error loading structure data:", error);
@@ -202,6 +192,7 @@ export function BusinessStructurePageClient() {
     relationships: Relationship[];
     levels: number;
     levelNames: Record<number, string>;
+    description: string;
   }) => {
     if (!editingStructure) return;
 
