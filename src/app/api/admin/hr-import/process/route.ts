@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
         success_count: result.successCount,
         failed_count: result.failedCount,
         auth_created_count: result.authCreatedCount,
-        errors: result.errors,
+        errors: result.errors as any,
         result: {
           success: result.successCount,
           failed: result.failedCount,
@@ -141,7 +141,6 @@ export async function POST(request: NextRequest) {
         const supabase = createAdminClient();
         await supabase
           .from('import_jobs')
-          // @ts-ignore - TypeScript has trouble inferring update types
           .update({
             status: 'failed',
             errors: [
@@ -152,7 +151,7 @@ export async function POST(request: NextRequest) {
                     ? error.message
                     : 'Unexpected error during processing',
               },
-            ],
+            ] as any,
           })
           .eq('id', jobId);
       } catch (updateError) {
