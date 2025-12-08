@@ -75,7 +75,7 @@ export default async function PersonalInfoPage() {
     .select("*")
     .eq("tenant_id", tenantId);
 
-  const customFieldDefinitions: CustomFieldDefinition[] = customFieldDefs || [];
+  const customFieldDefinitions = (customFieldDefs || []) as CustomFieldDefinition[];
 
   // Fetch all departments for the dropdown
   const { data: departments } = await supabase
