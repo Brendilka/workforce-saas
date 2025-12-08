@@ -14,10 +14,10 @@ interface BusinessStructure {
   id: string;
   name: string;
   description: string | null;
-  is_active: boolean;
-  max_levels: number;
-  created_at: string;
-  updated_at: string;
+  is_active: boolean | null;
+  max_levels: number | null;
+  created_at: string | null;
+  updated_at: string | null;
   units?: BusinessUnit[];
   relationships?: Relationship[];
   levelNames?: Record<number, string>;
@@ -385,7 +385,7 @@ export function BusinessStructurePageClient() {
     const initialData = (editingStructure as any).units ? {
       units: (editingStructure as any).units || [],
       relationships: (editingStructure as any).relationships || [],
-      levels: editingStructure.max_levels,
+      levels: editingStructure.max_levels || 10,
       levelNames: (editingStructure as any).levelNames || {},
     } : undefined;
 
@@ -460,15 +460,15 @@ export function BusinessStructurePageClient() {
                 })()}
 
                 <div className="text-xs text-muted-foreground mb-4">
-                  {structure.updated_at && Math.abs(new Date(structure.updated_at).getTime() - new Date(structure.created_at).getTime()) > 2000 ? (
+                  {structure.updated_at && structure.created_at && Math.abs(new Date(structure.updated_at).getTime() - new Date(structure.created_at).getTime()) > 2000 ? (
                     <>
                       Created {new Date(structure.created_at).toLocaleString()}
                       <br />
                       Updated {new Date(structure.updated_at).toLocaleString()}
                     </>
-                  ) : (
+                  ) : structure.created_at ? (
                     <>Created {new Date(structure.created_at).toLocaleString()}</>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="flex gap-2">
