@@ -68,7 +68,7 @@ export function BusinessStructurePageClient() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setStructures(data || []);
+      setStructures((data as BusinessStructure[]) || []);
     } catch (error) {
       console.error("Error loading structures:", error);
       toast.error("Failed to load business structures");
