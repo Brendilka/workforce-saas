@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -111,11 +112,17 @@ function LoginForm() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Header matching archive design */}
-      <header className="bg-primary text-primary-foreground py-5 text-center border-b-[5px] border-accent">
-        <h1 className="text-3xl font-normal tracking-wide">
-          Workforce Time Manager
-        </h1>
+      {/* Header with logo */}
+      <header className="bg-primary text-primary-foreground py-4 px-4 text-center border-b-[5px] border-accent flex items-center justify-center">
+        <Image
+          src="/bdk-logo.png?v=15"
+          alt="BDK Time and Attendance"
+          width={316}
+          height={57}
+          priority
+          unoptimized
+          style={{ width: '80%', height: 'auto', maxWidth: '320px' }}
+        />
       </header>
 
       {/* Login Form */}

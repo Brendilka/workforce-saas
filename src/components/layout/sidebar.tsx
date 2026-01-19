@@ -83,24 +83,9 @@ const adminNavItems = [
     icon: LayoutDashboard,
   },
   {
-    title: "Business Structure",
-    href: "/admin/business-structure",
-    icon: Users,
-  },
-  {
     title: "Work Schedule",
-    href: "/admin/roster-manager",
+    href: "/admin/work-schedule",
     icon: Calendar,
-  },
-  {
-    title: "HR Import",
-    href: "/admin/hr-import",
-    icon: FileText,
-  },
-  {
-    title: "Field Visibility",
-    href: "/admin/field-visibility-config",
-    icon: Settings,
   },
 ];
 
@@ -123,7 +108,7 @@ export function Sidebar({ userRole, userName, userInitials }: SidebarProps) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  const navItems = userRole === "employee" ? employeeNavItems : [];
+  const navItems = userRole === "admin" ? adminNavItems : employeeNavItems;
 
   const handleLogout = () => {
     startTransition(() => {

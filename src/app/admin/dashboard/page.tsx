@@ -12,6 +12,7 @@ import {
   BarChart3,
   Shield,
   Database,
+  CalendarClock,
 } from "lucide-react";
 
 const adminFeatures = [
@@ -41,6 +42,13 @@ const adminFeatures = [
     href: "/admin/business-structure",
     icon: Building2,
     description: "Manage organizational hierarchy and structure",
+    disabled: false,
+  },
+  {
+    title: "Roster Manager",
+    href: "/admin/roster-manager",
+    icon: CalendarClock,
+    description: "Define workload requirements and staffing patterns",
     disabled: false,
   },
   {

@@ -588,11 +588,433 @@ export type Database = {
           },
         ]
       }
+      workload_pattern_details: {
+        Row: {
+          day_of_week: number | null
+          id: string
+          notes: string | null
+          pattern_id: string
+          required_headcount: number
+          required_hours: number | null
+          span_end: string | null
+          span_start: string | null
+        }
+        Insert: {
+          day_of_week?: number | null
+          id?: string
+          notes?: string | null
+          pattern_id: string
+          required_headcount?: number
+          required_hours?: number | null
+          span_end?: string | null
+          span_start?: string | null
+        }
+        Update: {
+          day_of_week?: number | null
+          id?: string
+          notes?: string | null
+          pattern_id?: string
+          required_headcount?: number
+          required_hours?: number | null
+          span_end?: string | null
+          span_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workload_pattern_details_pattern_id_fkey"
+            columns: ["pattern_id"]
+            isOneToOne: false
+            referencedRelation: "workload_patterns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workload_patterns: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          end_date: string | null
+          id: string
+          is_active: boolean | null
+          job_title: string | null
+          location_id: string | null
+          name: string
+          recurrence: string
+          skill_profile: string | null
+          start_date: string
+          tenant_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          end_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          job_title?: string | null
+          location_id?: string | null
+          name: string
+          recurrence: string
+          skill_profile?: string | null
+          start_date: string
+          tenant_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          end_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          job_title?: string | null
+          location_id?: string | null
+          name?: string
+          recurrence?: string
+          skill_profile?: string | null
+          start_date?: string
+          tenant_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workload_patterns_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workload_patterns_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workload_patterns_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workload_requirements: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_override: boolean | null
+          is_published: boolean | null
+          job_title: string | null
+          location_id: string | null
+          notes: string | null
+          requirement_date: string
+          required_headcount: number
+          required_hours: number | null
+          skill_profile: string | null
+          source_pattern_id: string | null
+          span_end: string | null
+          span_start: string | null
+          tenant_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_override?: boolean | null
+          is_published?: boolean | null
+          job_title?: string | null
+          location_id?: string | null
+          notes?: string | null
+          requirement_date: string
+          required_headcount?: number
+          required_hours?: number | null
+          skill_profile?: string | null
+          source_pattern_id?: string | null
+          span_end?: string | null
+          span_start?: string | null
+          tenant_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_override?: boolean | null
+          is_published?: boolean | null
+          job_title?: string | null
+          location_id?: string | null
+          notes?: string | null
+          requirement_date?: string
+          required_headcount?: number
+          required_hours?: number | null
+          skill_profile?: string | null
+          source_pattern_id?: string | null
+          span_end?: string | null
+          span_start?: string | null
+          tenant_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workload_requirements_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workload_requirements_source_pattern_id_fkey"
+            columns: ["source_pattern_id"]
+            isOneToOne: false
+            referencedRelation: "workload_patterns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workload_requirements_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+
+      pattern_template_details: {
+        Row: {
+          created_at: string | null
+          day_of_week: number
+          end_time: string | null
+          id: string
+          label: string | null
+          pattern_template_id: string
+          shift_template_id: string | null
+          spans_midnight: boolean
+          start_time: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          day_of_week: number
+          end_time?: string | null
+          id?: string
+          label?: string | null
+          pattern_template_id: string
+          shift_template_id?: string | null
+          spans_midnight?: boolean
+          start_time?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          day_of_week?: number
+          end_time?: string | null
+          id?: string
+          label?: string | null
+          pattern_template_id?: string
+          shift_template_id?: string | null
+          spans_midnight?: boolean
+          start_time?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pattern_template_details_pattern_template_id_fkey"
+            columns: ["pattern_template_id"]
+            isOneToOne: false
+            referencedRelation: "pattern_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pattern_template_details_shift_template_id_fkey"
+            columns: ["shift_template_id"]
+            isOneToOne: false
+            referencedRelation: "shift_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+
+      pattern_templates: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          tenant_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          tenant_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          tenant_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pattern_templates_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+
+      schedule_shifts: {
+        Row: {
+          comment: string | null
+          created_at: string | null
+          department_id: string | null
+          end_time: string | null
+          id: string
+          is_locked: boolean
+          profile_id: string
+          shift_template_id: string | null
+          source_pattern_template_id: string | null
+          spans_midnight: boolean
+          start_time: string | null
+          tenant_id: string
+          updated_at: string | null
+          work_date: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string | null
+          department_id?: string | null
+          end_time?: string | null
+          id?: string
+          is_locked?: boolean
+          profile_id: string
+          shift_template_id?: string | null
+          source_pattern_template_id?: string | null
+          spans_midnight?: boolean
+          start_time?: string | null
+          tenant_id: string
+          updated_at?: string | null
+          work_date: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string | null
+          department_id?: string | null
+          end_time?: string | null
+          id?: string
+          is_locked?: boolean
+          profile_id?: string
+          shift_template_id?: string | null
+          source_pattern_template_id?: string | null
+          spans_midnight?: boolean
+          start_time?: string | null
+          tenant_id?: string
+          updated_at?: string | null
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_shifts_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shifts_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shifts_shift_template_id_fkey"
+            columns: ["shift_template_id"]
+            isOneToOne: false
+            referencedRelation: "shift_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shifts_source_pattern_template_id_fkey"
+            columns: ["source_pattern_template_id"]
+            isOneToOne: false
+            referencedRelation: "pattern_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shifts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+
+      shift_templates: {
+        Row: {
+          created_at: string | null
+          end_time: string
+          id: string
+          is_active: boolean
+          name: string
+          spans_midnight: boolean
+          start_time: string
+          tenant_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          end_time: string
+          id?: string
+          is_active?: boolean
+          name: string
+          spans_midnight?: boolean
+          start_time: string
+          tenant_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          end_time?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          spans_midnight?: boolean
+          start_time?: string
+          tenant_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shift_templates_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      apply_workload_pattern: {
+        Args: {
+          p_end_date: string
+          p_pattern_id: string
+          p_start_date: string
+        }
+        Returns: number
+      }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
     }
     Enums: {
