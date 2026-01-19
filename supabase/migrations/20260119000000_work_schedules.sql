@@ -38,26 +38,36 @@ CREATE POLICY "Users can view work_schedules in their tenant"
   ON public.work_schedules
   FOR SELECT
   TO authenticated
-  USING (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
+  USING (tenant_id IN (
+    SELECT tenant_id FROM public.users WHERE id = auth.uid()
+  ));
 
 CREATE POLICY "Admins can insert work_schedules in their tenant"
   ON public.work_schedules
   FOR INSERT
   TO authenticated
-  WITH CHECK (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
+  WITH CHECK (tenant_id IN (
+    SELECT tenant_id FROM public.users WHERE id = auth.uid()
+  ));
 
 CREATE POLICY "Admins can update work_schedules in their tenant"
   ON public.work_schedules
   FOR UPDATE
   TO authenticated
-  USING (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid)
-  WITH CHECK (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
+  USING (tenant_id IN (
+    SELECT tenant_id FROM public.users WHERE id = auth.uid()
+  ))
+  WITH CHECK (tenant_id IN (
+    SELECT tenant_id FROM public.users WHERE id = auth.uid()
+  ));
 
 CREATE POLICY "Admins can delete work_schedules in their tenant"
   ON public.work_schedules
   FOR DELETE
   TO authenticated
-  USING (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
+  USING (tenant_id IN (
+    SELECT tenant_id FROM public.users WHERE id = auth.uid()
+  ));
 
 -- Work Schedule Timeframes (for Continuous and Split shifts)
 -- Drop existing policies
@@ -101,9 +111,11 @@ CREATE POLICY "Users can view work_schedule_timeframes in their tenant"
   FOR SELECT
   TO authenticated
   USING (EXISTS (
-    SELECT 1 FROM public.work_schedules
-    WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
-    AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
+    SELECT 1 FROM public.work_schedules ws
+    WHERE ws.id = work_schedule_timeframes.work_schedule_id
+    AND ws.tenant_id IN (
+      SELECT tenant_id FROM public.users WHERE id = auth.uid()
+    )
   ));
 
 CREATE POLICY "Admins can insert work_schedule_timeframes in their tenant"
@@ -112,9 +124,11 @@ CREATE POLICY "Admins can insert work_schedule_timeframes in their tenant"
   TO authenticated
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM public.work_schedules
-      WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
-      AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
+      SELECT 1 FROM public.work_schedules ws
+      WHERE ws.id = work_schedule_timeframes.work_schedule_id
+      AND ws.tenant_id IN (
+        SELECT tenant_id FROM public.users WHERE id = auth.uid()
+      )
     )
   );
 
@@ -124,16 +138,20 @@ CREATE POLICY "Admins can update work_schedule_timeframes in their tenant"
   TO authenticated
   USING (
     EXISTS (
-      SELECT 1 FROM public.work_schedules
-      WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
-      AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
+      SELECT 1 FROM public.work_schedules ws
+      WHERE ws.id = work_schedule_timeframes.work_schedule_id
+      AND ws.tenant_id IN (
+        SELECT tenant_id FROM public.users WHERE id = auth.uid()
+      )
     )
   )
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM public.work_schedules
-      WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
-      AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
+      SELECT 1 FROM public.work_schedules ws
+      WHERE ws.id = work_schedule_timeframes.work_schedule_id
+      AND ws.tenant_id IN (
+        SELECT tenant_id FROM public.users WHERE id = auth.uid()
+      )
     )
   );
 
@@ -143,8 +161,10 @@ CREATE POLICY "Admins can delete work_schedule_timeframes in their tenant"
   TO authenticated
   USING (
     EXISTS (
-      SELECT 1 FROM public.work_schedules
-      WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
-      AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
+      SELECT 1 FROM public.work_schedules ws
+      WHERE ws.id = work_schedule_timeframes.work_schedule_id
+      AND ws.tenant_id IN (
+        SELECT tenant_id FROM public.users WHERE id = auth.uid()
+      )
     )
   );
