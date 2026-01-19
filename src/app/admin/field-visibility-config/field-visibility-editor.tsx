@@ -4,7 +4,13 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import JsonView from "@uiw/react-json-view";
 
@@ -130,18 +136,22 @@ export function FieldVisibilityEditor({ initialConfig, tenantId }: FieldVisibili
           <div className="space-y-2">
             <Label htmlFor="page-select">Page</Label>
             <Select
-              id="page-select"
               value={selectedPage}
-              onChange={(e) => {
-                setSelectedPage(e.target.value);
+              onValueChange={(value) => {
+                setSelectedPage(value);
                 setIsEditing(false);
               }}
             >
-              {AVAILABLE_PAGES.map((page) => (
-                <option key={page.value} value={page.value}>
-                  {page.label}
-                </option>
-              ))}
+              <SelectTrigger id="page-select">
+                <SelectValue placeholder="Select a page" />
+              </SelectTrigger>
+              <SelectContent>
+                {AVAILABLE_PAGES.map((page) => (
+                  <SelectItem key={page.value} value={page.value}>
+                    {page.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
         </CardContent>
