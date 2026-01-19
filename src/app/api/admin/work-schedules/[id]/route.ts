@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 // GET single schedule
@@ -85,8 +86,14 @@ export async function PUT(
       );
     }
 
+    // Use service role client for updates
+    const adminClient = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+    );
+
     // Update work schedule
-    const { error: updateError } = await supabase
+    const { error: updateError } = await adminClient
       .from("work_schedules")
       .update({
         shift_id: shiftId,
@@ -98,7 +105,7 @@ export async function PUT(
     if (updateError) throw updateError;
 
     // Delete existing timeframes
-    await supabase
+    await adminClient
       .from("work_schedule_timeframes")
       .delete()
       .eq("work_schedule_id", id);
@@ -113,7 +120,7 @@ export async function PUT(
       })
     );
 
-    const { error: timeframesError } = await supabase
+    const { error: timeframesError } = await adminClient
       .from("work_schedule_timeframes")
       .insert(timeframesData);
 
@@ -171,7 +178,13 @@ export async function DELETE(
 
     const { id } = await params;
 
-    const { error } = await supabase
+    // Use service role client for delete
+    const adminClient = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+    );
+
+    const { error } = await adminClient
       .from("work_schedules")
       .delete()
       .eq("id", id)

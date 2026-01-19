@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 // GET all work schedules
@@ -74,8 +75,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create work schedule using authenticated client
-    const { data: schedule, error: scheduleError } = await supabase
+    // Create work schedule using service role client to bypass RLS
+    const adminClient = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+    );
+
+    const { data: schedule, error: scheduleError } = await adminClient
       .from("work_schedules")
       .insert({
         tenant_id: tenantId,
@@ -87,7 +93,7 @@ export async function POST(request: NextRequest) {
 
     if (scheduleError) throw scheduleError;
 
-    // Insert timeframes
+    // Insert timeframes with service role
     const timeframesData = timeframes.map(
       (tf: { startTime: string; endTime: string }, index: number) => ({
         work_schedule_id: schedule.id,
@@ -97,13 +103,13 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    const { error: timeframesError } = await supabase
+    const { error: timeframesError } = await adminClient
       .from("work_schedule_timeframes")
       .insert(timeframesData);
 
     if (timeframesError) throw timeframesError;
 
-    // Fetch complete schedule with timeframes using regular client for consistency
+    // Fetch complete schedule with timeframes
     const { data: completeSchedule, error: fetchError } = await supabase
       .from("work_schedules")
       .select(
