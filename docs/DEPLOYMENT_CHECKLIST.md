@@ -70,6 +70,60 @@ vercel env add SUPABASE_SERVICE_ROLE_KEY production
 ```bash
 # Trigger a new deployment to apply environment variables
 vercel --prod
+
+## Custom Domain (brendilkasolutions.com)
+
+You have two common options:
+
+1. **Make this app the primary site** at `https://brendilkasolutions.com` (and optionally `https://www.brendilkasolutions.com`).
+2. **Host the app on a subdomain** like `https://app.brendilkasolutions.com` while keeping your existing marketing site on the root domain.
+
+### Add the Domain in Vercel
+
+1. Go to **Vercel Dashboard → Project → Settings → Domains**
+2. Add one of:
+    - `brendilkasolutions.com`
+    - `www.brendilkasolutions.com`
+    - `app.brendilkasolutions.com`
+3. Vercel will show the required DNS records for your DNS provider.
+
+### Typical DNS Records (most registrars)
+
+If you’re pointing the **root (apex) domain** to Vercel:
+
+- `A` record
+   - **Name/Host:** `@`
+   - **Value:** `76.76.21.21`
+
+If you’re using **www**:
+
+- `CNAME` record
+   - **Name/Host:** `www`
+   - **Value:** `cname.vercel-dns.com`
+
+If you’re using an **app subdomain**:
+
+- `CNAME` record
+   - **Name/Host:** `app`
+   - **Value:** `cname.vercel-dns.com`
+
+Notes:
+- Remove conflicting existing records (old `A`/`CNAME` for the same host).
+- DNS changes can take a few minutes up to 24h (usually much faster).
+
+### Update App URL Environment Variable
+
+Set this in Vercel **for Production (and Preview if desired):**
+
+```bash
+NEXT_PUBLIC_APP_URL=https://brendilkasolutions.com
+```
+
+If you deploy on a subdomain, use that instead:
+
+```bash
+NEXT_PUBLIC_APP_URL=https://app.brendilkasolutions.com
+```
 ```
 
 ## Post-Deployment Verification
@@ -156,6 +210,19 @@ Background processing trigger returned error
    - Enable auth hook in Supabase dashboard
 
 ## Supabase Configuration
+
+### Configure Auth Redirect URLs (Required for Login to Work)
+
+In **Supabase Dashboard → Authentication → URL Configuration**:
+
+1. Set **Site URL** to your production URL:
+   - `https://brendilkasolutions.com` (or `https://app.brendilkasolutions.com`)
+2. Add **Redirect URLs** entries for any domains you will use:
+   - `https://brendilkasolutions.com/**`
+   - `https://www.brendilkasolutions.com/**` (if you use `www`)
+   - `https://app.brendilkasolutions.com/**` (if you use `app`)
+
+If this is missing, you’ll typically see OAuth/email-link flows fail or redirect to the wrong host.
 
 ### Enable Realtime for Import Jobs
 
