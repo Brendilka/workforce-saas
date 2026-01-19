@@ -59,6 +59,7 @@ export function WorkScheduleForm({
   );
   const [overlapWarning, setOverlapWarning] = useState<string>("");
   const [submitError, setSubmitError] = useState<string>("");
+  const [timeframeErrors, setTimeframeErrors] = useState<string[]>([]);
 
   // Calculate total shift hours
   const calculateShiftHours = () => {
@@ -122,8 +123,34 @@ export function WorkScheduleForm({
     return true;
   };
 
+  // Validate that end time is later than start time
+  const validateEndTimeAfterStartTime = () => {
+    const errors: string[] = [];
+    
+    for (let i = 0; i < timeframes.length; i++) {
+      const tf = timeframes[i];
+      
+      if (tf.startTime && tf.endTime) {
+        const [startHour, startMin] = tf.startTime.split(":").map(Number);
+        const [endHour, endMin] = tf.endTime.split(":").map(Number);
+        
+        const startTotalMin = startHour * 60 + startMin;
+        const endTotalMin = endHour * 60 + endMin;
+        
+        // Check if end time is after start time (allowing midnight span)
+        if (endTotalMin <= startTotalMin) {
+          errors[i] = "End time must be later than start time";
+        }
+      }
+    }
+    
+    setTimeframeErrors(errors);
+    return errors.filter(Boolean).length === 0;
+  };
+
   useEffect(() => {
     checkOverlap();
+    validateEndTimeAfterStartTime();
   }, [timeframes]);
 
   const addTimeframe = () => {
@@ -160,6 +187,11 @@ export function WorkScheduleForm({
 
     if (timeframes.some((tf) => !tf.startTime || !tf.endTime)) {
       setSubmitError("All timeframe fields are required");
+      return;
+    }
+
+    if (!validateEndTimeAfterStartTime()) {
+      setSubmitError("End time must be later than start time for all timeframes");
       return;
     }
 
@@ -271,9 +303,16 @@ export function WorkScheduleForm({
                     updateTimeframe(index, "endTime", e.target.value)
                   }
                   disabled={isLoading}
+                  className={timeframeErrors[index] ? "border-red-500" : ""}
                 />
               </div>
             </div>
+            {timeframeErrors[index] && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{timeframeErrors[index]}</AlertDescription>
+              </Alert>
+            )}
           </Card>
         ))}
 
