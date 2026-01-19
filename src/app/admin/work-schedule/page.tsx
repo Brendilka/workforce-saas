@@ -135,18 +135,34 @@ export default function WorkSchedulePage() {
         description="Manage employee work schedules"
       />
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        // Only allow closing if the dialog is being opened, not closed
+        // This prevents closing by clicking outside
+        if (open) setIsDialogOpen(true);
+      }}>
         <DialogTrigger asChild>
-          <Button onClick={() => setEditingSchedule(null)} className="gap-2 w-fit">
+          <Button onClick={() => {
+            setEditingSchedule(null);
+            setIsDialogOpen(true);
+          }} className="gap-2 w-fit">
             <Plus className="h-4 w-4" />
             Add Schedule
           </Button>
         </DialogTrigger>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editingSchedule ? "Edit Schedule" : "Add New Schedule"}
-            </DialogTitle>
+            <div className="flex justify-between items-center">
+              <DialogTitle>
+                {editingSchedule ? "Edit Schedule" : "Add New Schedule"}
+              </DialogTitle>
+              <button
+                onClick={() => setIsDialogOpen(false)}
+                className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
           </DialogHeader>
           <WorkScheduleForm
             schedule={editingSchedule || undefined}
@@ -188,7 +204,9 @@ export default function WorkSchedulePage() {
 
                 {hoveredScheduleId === schedule.id && (
                   <div className="flex gap-2">
-                    <Dialog>
+                    <Dialog open={editingSchedule?.id === schedule.id} onOpenChange={(open) => {
+                      if (!open) setEditingSchedule(null);
+                    }}>
                       <DialogTrigger asChild>
                         <Button
                           variant="ghost"
@@ -200,7 +218,16 @@ export default function WorkSchedulePage() {
                       </DialogTrigger>
                       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
-                          <DialogTitle>Edit Schedule</DialogTitle>
+                          <div className="flex justify-between items-center">
+                            <DialogTitle>Edit Schedule</DialogTitle>
+                            <button
+                              onClick={() => setEditingSchedule(null)}
+                              className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
+                              aria-label="Close"
+                            >
+                              ×
+                            </button>
+                          </div>
                         </DialogHeader>
                         <WorkScheduleForm
                           schedule={editingSchedule || schedule}

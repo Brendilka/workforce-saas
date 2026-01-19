@@ -38,8 +38,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(schedules);
   } catch (error) {
     console.error("Error fetching schedules:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("Detailed error:", errorMessage);
     return NextResponse.json(
-      { error: "Failed to fetch schedules" },
+      { error: errorMessage || "Failed to fetch schedules" },
       { status: 500 }
     );
   }
@@ -122,8 +124,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(completeSchedule, { status: 201 });
   } catch (error) {
     console.error("Error creating schedule:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("Detailed error:", errorMessage);
     return NextResponse.json(
-      { error: "Failed to create schedule" },
+      { error: errorMessage || "Failed to create schedule" },
       { status: 500 }
     );
   }
