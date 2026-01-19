@@ -19,7 +19,7 @@ export async function GET(
     }
 
     const { id } = await params;
-    const supabase = createClient();
+    const supabase = await createClient();
 
     const { data: schedule, error } = await supabase
       .from("work_schedules")
@@ -79,7 +79,7 @@ export async function PUT(
       );
     }
 
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // Update work schedule
     const { error: updateError } = await supabase
@@ -160,7 +160,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const supabase = createClient();
+    const supabase = await createClient();
 
     const { error } = await supabase
       .from("work_schedules")
