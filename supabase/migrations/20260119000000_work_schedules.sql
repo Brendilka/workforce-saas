@@ -1,4 +1,12 @@
 -- Work Schedules (custom shift definitions)
+-- Drop and recreate policies if they exist
+DROP POLICY IF EXISTS "Service role can manage all work_schedules" ON public.work_schedules;
+DROP POLICY IF EXISTS "Users can view work_schedules in their tenant" ON public.work_schedules;
+DROP POLICY IF EXISTS "Admins can manage work_schedules in their tenant" ON public.work_schedules;
+DROP POLICY IF EXISTS "Admins can insert work_schedules in their tenant" ON public.work_schedules;
+DROP POLICY IF EXISTS "Admins can update work_schedules in their tenant" ON public.work_schedules;
+DROP POLICY IF EXISTS "Admins can delete work_schedules in their tenant" ON public.work_schedules;
+
 CREATE TABLE IF NOT EXISTS public.work_schedules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
@@ -11,6 +19,7 @@ CREATE TABLE IF NOT EXISTS public.work_schedules (
 
 CREATE INDEX IF NOT EXISTS idx_work_schedules_tenant_id ON public.work_schedules(tenant_id);
 
+DROP TRIGGER IF EXISTS work_schedules_updated_at ON public.work_schedules;
 CREATE TRIGGER work_schedules_updated_at
   BEFORE UPDATE ON public.work_schedules
   FOR EACH ROW
@@ -51,6 +60,14 @@ CREATE POLICY "Admins can delete work_schedules in their tenant"
   USING (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
 
 -- Work Schedule Timeframes (for Continuous and Split shifts)
+-- Drop existing policies
+DROP POLICY IF EXISTS "Service role can manage all work_schedule_timeframes" ON public.work_schedule_timeframes;
+DROP POLICY IF EXISTS "Users can view work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
+DROP POLICY IF EXISTS "Admins can manage work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
+DROP POLICY IF EXISTS "Admins can insert work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
+DROP POLICY IF EXISTS "Admins can update work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
+DROP POLICY IF EXISTS "Admins can delete work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
+
 CREATE TABLE IF NOT EXISTS public.work_schedule_timeframes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   work_schedule_id UUID NOT NULL REFERENCES public.work_schedules(id) ON DELETE CASCADE,
@@ -64,6 +81,7 @@ CREATE TABLE IF NOT EXISTS public.work_schedule_timeframes (
 CREATE INDEX IF NOT EXISTS idx_work_schedule_timeframes_schedule_id ON public.work_schedule_timeframes(work_schedule_id);
 CREATE INDEX IF NOT EXISTS idx_work_schedule_timeframes_order ON public.work_schedule_timeframes(work_schedule_id, frame_order);
 
+DROP TRIGGER IF EXISTS work_schedule_timeframes_updated_at ON public.work_schedule_timeframes;
 CREATE TRIGGER work_schedule_timeframes_updated_at
   BEFORE UPDATE ON public.work_schedule_timeframes
   FOR EACH ROW
