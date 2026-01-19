@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Edit, Save } from "lucide-react";
 import type { Profile, CustomFieldDefinition, PageConfig } from "@/lib/types/database";
@@ -117,6 +117,7 @@ export function PersonalInfoForm({
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
     reset,
   } = useForm({
@@ -201,14 +202,24 @@ export function PersonalInfoForm({
       return (
         <div key={fieldName} className="space-y-2">
           <Label htmlFor={fieldName}>{label}</Label>
-          <Select id={fieldName} {...register(fieldName)} disabled={!isEditing}>
-            <option value="">Select Department</option>
-            {departments.map((dept) => (
-              <option key={dept.id} value={dept.id}>
-                {dept.name}
-              </option>
-            ))}
-          </Select>
+          <Controller
+            name={fieldName}
+            control={control}
+            render={({ field }) => (
+              <Select value={field.value || ""} onValueChange={field.onChange} disabled={!isEditing}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Department" />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
           {error && <p className="text-sm text-red-500">{error.message as string}</p>}
         </div>
       );
@@ -219,13 +230,24 @@ export function PersonalInfoForm({
       return (
         <div key={fieldName} className="space-y-2">
           <Label htmlFor={fieldName}>{label}</Label>
-          <Select id={fieldName} {...register(fieldName)} disabled={!isEditing}>
-            {EMPLOYMENT_STATUS_OPTIONS.map((status) => (
-              <option key={status.value} value={status.value}>
-                {status.label}
-              </option>
-            ))}
-          </Select>
+          <Controller
+            name={fieldName}
+            control={control}
+            render={({ field }) => (
+              <Select value={field.value || ""} onValueChange={field.onChange} disabled={!isEditing}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {EMPLOYMENT_STATUS_OPTIONS.map((status) => (
+                    <SelectItem key={status.value} value={status.value}>
+                      {status.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
           {error && <p className="text-sm text-red-500">{error.message as string}</p>}
         </div>
       );
@@ -237,14 +259,24 @@ export function PersonalInfoForm({
       return (
         <div key={fieldName} className="space-y-2">
           <Label htmlFor={fieldName}>{label}</Label>
-          <Select id={fieldName} {...register(fieldName)} disabled={!isEditing}>
-            <option value="">Select...</option>
-            {options.map((option: string) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </Select>
+          <Controller
+            name={fieldName}
+            control={control}
+            render={({ field }) => (
+              <Select value={field.value || ""} onValueChange={field.onChange} disabled={!isEditing}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {options.map((option: string) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
           {error && <p className="text-sm text-red-500">{error.message as string}</p>}
         </div>
       );
