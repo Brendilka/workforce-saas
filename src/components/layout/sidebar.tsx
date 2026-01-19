@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -75,6 +76,34 @@ const employeeNavItems = [
   },
 ];
 
+const adminNavItems = [
+  {
+    title: "Dashboard",
+    href: "/admin/dashboard",
+    icon: LayoutDashboard,
+  },
+  {
+    title: "Business Structure",
+    href: "/admin/business-structure",
+    icon: Users,
+  },
+  {
+    title: "Work Schedule",
+    href: "/admin/roster-manager",
+    icon: Calendar,
+  },
+  {
+    title: "HR Import",
+    href: "/admin/hr-import",
+    icon: FileText,
+  },
+  {
+    title: "Field Visibility",
+    href: "/admin/field-visibility-config",
+    icon: Settings,
+  },
+];
+
 const helpNavItems = [
   {
     title: "Help & Support",
@@ -110,17 +139,17 @@ export function Sidebar({ userRole, userName, userInitials }: SidebarProps) {
       <Link
         href={homeHref}
         onClick={() => setIsMobileOpen(false)}
-        className="p-6 flex items-center gap-3 hover:bg-gray-50 transition-colors cursor-pointer"
+        className="p-1 flex items-center justify-center hover:bg-gray-50 transition-colors cursor-pointer w-full"
       >
-        <div className="h-10 w-10 rounded-lg bg-accent flex items-center justify-center text-white font-bold text-lg">
-          W
-        </div>
-        {!isCollapsed && (
-          <div className="flex flex-col">
-            <h1 className="text-lg font-semibold text-primary">Workforce</h1>
-            <p className="text-xs text-muted-foreground">Time Manager</p>
-          </div>
-        )}
+        <Image
+          src="/bdk-logo.png?v=15"
+          alt="BDK Time and Attendance"
+          width={316}
+          height={57}
+          priority
+          unoptimized
+          style={{ width: '85%', height: 'auto' }}
+        />
       </Link>
 
       <Separator />
