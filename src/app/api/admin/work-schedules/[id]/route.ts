@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { getUser } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
 // GET single schedule
@@ -8,8 +7,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getUser();
-    if (!user) {
+    const supabase = await createClient();
+    
+    // Get user from session
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -19,7 +22,6 @@ export async function GET(
     }
 
     const { id } = await params;
-    const supabase = await createClient();
 
     const { data: schedule, error } = await supabase
       .from("work_schedules")
@@ -58,8 +60,12 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getUser();
-    if (!user) {
+    const supabase = await createClient();
+    
+    // Get user from session
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -78,8 +84,6 @@ export async function PUT(
         { status: 400 }
       );
     }
-
-    const supabase = await createClient();
 
     // Update work schedule
     const { error: updateError } = await supabase
@@ -149,8 +153,12 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getUser();
-    if (!user) {
+    const supabase = await createClient();
+    
+    // Get user from session
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -160,7 +168,6 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const supabase = await createClient();
 
     const { error } = await supabase
       .from("work_schedules")

@@ -1,12 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
-import { getUser } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
 // GET all work schedules
 export async function GET(request: NextRequest) {
   try {
-    const user = await getUser();
-    if (!user) {
+    const supabase = await createClient();
+    
+    // Get user from session to extract tenant_id
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -14,8 +17,6 @@ export async function GET(request: NextRequest) {
     if (!tenantId) {
       return NextResponse.json({ error: "No tenant ID" }, { status: 400 });
     }
-
-    const supabase = await createClient();
 
     const { data: schedules, error } = await supabase
       .from("work_schedules")
@@ -47,8 +48,12 @@ export async function GET(request: NextRequest) {
 // POST create new work schedule
 export async function POST(request: NextRequest) {
   try {
-    const user = await getUser();
-    if (!user) {
+    const supabase = await createClient();
+    
+    // Get user from session
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -66,8 +71,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    const supabase = await createClient();
 
     // Create work schedule
     const { data: schedule, error: scheduleError } = await supabase
