@@ -82,11 +82,6 @@ const adminNavItems = [
     href: "/admin/dashboard",
     icon: LayoutDashboard,
   },
-  {
-    title: "Work Schedule",
-    href: "/admin/work-schedule",
-    icon: Calendar,
-  },
 ];
 
 const helpNavItems = [

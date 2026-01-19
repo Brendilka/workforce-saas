@@ -45,10 +45,10 @@ const adminFeatures = [
     disabled: false,
   },
   {
-    title: "Roster Manager",
-    href: "/admin/roster-manager",
+    title: "Work Schedule",
+    href: "/admin/work-schedule",
     icon: CalendarClock,
-    description: "Define workload requirements and staffing patterns",
+    description: "Manage work schedules and staffing patterns",
     disabled: false,
   },
   {
