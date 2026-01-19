@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 // GET all work schedules
@@ -75,14 +74,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use admin client to bypass RLS (we already validated auth above)
-    const adminSupabase = createAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    // Create work schedule
-    const { data: schedule, error: scheduleError } = await adminSupabase
+    // Create work schedule using authenticated client
+    const { data: schedule, error: scheduleError } = await supabase
       .from("work_schedules")
       .insert({
         tenant_id: tenantId,
@@ -104,7 +97,7 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    const { error: timeframesError } = await adminSupabase
+    const { error: timeframesError } = await supabase
       .from("work_schedule_timeframes")
       .insert(timeframesData);
 

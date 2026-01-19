@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 // GET single schedule
@@ -86,14 +85,8 @@ export async function PUT(
       );
     }
 
-    // Use admin client to bypass RLS
-    const adminSupabase = createAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
     // Update work schedule
-    const { error: updateError } = await adminSupabase
+    const { error: updateError } = await supabase
       .from("work_schedules")
       .update({
         shift_id: shiftId,
@@ -105,7 +98,7 @@ export async function PUT(
     if (updateError) throw updateError;
 
     // Delete existing timeframes
-    await adminSupabase
+    await supabase
       .from("work_schedule_timeframes")
       .delete()
       .eq("work_schedule_id", id);
@@ -120,7 +113,7 @@ export async function PUT(
       })
     );
 
-    const { error: timeframesError } = await adminSupabase
+    const { error: timeframesError } = await supabase
       .from("work_schedule_timeframes")
       .insert(timeframesData);
 
@@ -178,13 +171,7 @@ export async function DELETE(
 
     const { id } = await params;
 
-    // Use admin client to bypass RLS
-    const adminSupabase = createAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    const { error } = await adminSupabase
+    const { error } = await supabase
       .from("work_schedules")
       .delete()
       .eq("id", id)

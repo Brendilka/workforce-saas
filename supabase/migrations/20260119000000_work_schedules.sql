@@ -31,12 +31,24 @@ CREATE POLICY "Users can view work_schedules in their tenant"
   TO authenticated
   USING (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
 
-CREATE POLICY "Admins can manage work_schedules in their tenant"
+CREATE POLICY "Admins can insert work_schedules in their tenant"
   ON public.work_schedules
-  FOR ALL
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
+
+CREATE POLICY "Admins can update work_schedules in their tenant"
+  ON public.work_schedules
+  FOR UPDATE
   TO authenticated
   USING (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid)
   WITH CHECK (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
+
+CREATE POLICY "Admins can delete work_schedules in their tenant"
+  ON public.work_schedules
+  FOR DELETE
+  TO authenticated
+  USING (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
 
 -- Work Schedule Timeframes (for Continuous and Split shifts)
 CREATE TABLE IF NOT EXISTS public.work_schedule_timeframes (
@@ -76,9 +88,21 @@ CREATE POLICY "Users can view work_schedule_timeframes in their tenant"
     AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
   ));
 
-CREATE POLICY "Admins can manage work_schedule_timeframes in their tenant"
+CREATE POLICY "Admins can insert work_schedule_timeframes in their tenant"
   ON public.work_schedule_timeframes
-  FOR ALL
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.work_schedules
+      WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
+      AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
+    )
+  );
+
+CREATE POLICY "Admins can update work_schedule_timeframes in their tenant"
+  ON public.work_schedule_timeframes
+  FOR UPDATE
   TO authenticated
   USING (
     EXISTS (
@@ -88,6 +112,18 @@ CREATE POLICY "Admins can manage work_schedule_timeframes in their tenant"
     )
   )
   WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.work_schedules
+      WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
+      AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
+    )
+  );
+
+CREATE POLICY "Admins can delete work_schedule_timeframes in their tenant"
+  ON public.work_schedule_timeframes
+  FOR DELETE
+  TO authenticated
+  USING (
     EXISTS (
       SELECT 1 FROM public.work_schedules
       WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
