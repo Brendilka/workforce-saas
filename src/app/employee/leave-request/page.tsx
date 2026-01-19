@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, CheckCircle, Clock, XCircle } from "lucide-react";
@@ -131,18 +131,21 @@ export default function LeaveRequestPage() {
               <div className="space-y-2">
                 <Label htmlFor="leaveType">Leave Type</Label>
                 <Select
-                  id="leaveType"
                   value={leaveType}
-                  onChange={(e) => setLeaveType(e.target.value)}
+                  onValueChange={setLeaveType}
                   required
                 >
-                  <option value="">Select leave type</option>
-                  <option value="annual">Annual Leave</option>
-                  <option value="sick">Sick Leave</option>
-                  <option value="personal">Personal Leave</option>
-                  <option value="unpaid">Unpaid Leave</option>
-                  <option value="parental">Parental Leave</option>
-                  <option value="bereavement">Bereavement Leave</option>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select leave type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="annual">Annual Leave</SelectItem>
+                    <SelectItem value="sick">Sick Leave</SelectItem>
+                    <SelectItem value="personal">Personal Leave</SelectItem>
+                    <SelectItem value="unpaid">Unpaid Leave</SelectItem>
+                    <SelectItem value="parental">Parental Leave</SelectItem>
+                    <SelectItem value="bereavement">Bereavement Leave</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
 
