@@ -29,14 +29,14 @@ CREATE POLICY "Users can view work_schedules in their tenant"
   ON public.work_schedules
   FOR SELECT
   TO authenticated
-  USING (tenant_id::text = auth.jwt() ->> 'tenant_id');
+  USING (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
 
 CREATE POLICY "Admins can manage work_schedules in their tenant"
   ON public.work_schedules
   FOR ALL
   TO authenticated
-  USING (tenant_id::text = auth.jwt() ->> 'tenant_id')
-  WITH CHECK (tenant_id::text = auth.jwt() ->> 'tenant_id');
+  USING (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid)
+  WITH CHECK (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
 
 -- Work Schedule Timeframes (for Continuous and Split shifts)
 CREATE TABLE IF NOT EXISTS public.work_schedule_timeframes (
@@ -73,7 +73,7 @@ CREATE POLICY "Users can view work_schedule_timeframes in their tenant"
   USING (EXISTS (
     SELECT 1 FROM public.work_schedules
     WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
-    AND work_schedules.tenant_id::text = auth.jwt() ->> 'tenant_id'
+    AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
   ));
 
 CREATE POLICY "Admins can manage work_schedule_timeframes in their tenant"
@@ -84,13 +84,13 @@ CREATE POLICY "Admins can manage work_schedule_timeframes in their tenant"
     EXISTS (
       SELECT 1 FROM public.work_schedules
       WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
-      AND work_schedules.tenant_id::text = auth.jwt() ->> 'tenant_id'
+      AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
     )
   )
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM public.work_schedules
       WHERE work_schedules.id = work_schedule_timeframes.work_schedule_id
-      AND work_schedules.tenant_id::text = auth.jwt() ->> 'tenant_id'
+      AND work_schedules.tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
     )
   );

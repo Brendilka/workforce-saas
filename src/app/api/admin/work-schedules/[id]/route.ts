@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 // GET single schedule
@@ -85,8 +86,14 @@ export async function PUT(
       );
     }
 
+    // Use admin client to bypass RLS
+    const adminSupabase = createAdminClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
     // Update work schedule
-    const { error: updateError } = await supabase
+    const { error: updateError } = await adminSupabase
       .from("work_schedules")
       .update({
         shift_id: shiftId,
@@ -98,7 +105,7 @@ export async function PUT(
     if (updateError) throw updateError;
 
     // Delete existing timeframes
-    await supabase
+    await adminSupabase
       .from("work_schedule_timeframes")
       .delete()
       .eq("work_schedule_id", id);
@@ -113,13 +120,13 @@ export async function PUT(
       })
     );
 
-    const { error: timeframesError } = await supabase
+    const { error: timeframesError } = await adminSupabase
       .from("work_schedule_timeframes")
       .insert(timeframesData);
 
     if (timeframesError) throw timeframesError;
 
-    // Fetch updated schedule
+    // Fetch updated schedule using regular client
     const { data: updatedSchedule, error: fetchError } = await supabase
       .from("work_schedules")
       .select(
@@ -133,6 +140,7 @@ export async function PUT(
       `
       )
       .eq("id", id)
+      .eq("tenant_id", tenantId)
       .single();
 
     if (fetchError) throw fetchError;
@@ -140,8 +148,9 @@ export async function PUT(
     return NextResponse.json(updatedSchedule);
   } catch (error) {
     console.error("Error updating schedule:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to update schedule" },
+      { error: errorMessage || "Failed to update schedule" },
       { status: 500 }
     );
   }
@@ -169,7 +178,13 @@ export async function DELETE(
 
     const { id } = await params;
 
-    const { error } = await supabase
+    // Use admin client to bypass RLS
+    const adminSupabase = createAdminClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    const { error } = await adminSupabase
       .from("work_schedules")
       .delete()
       .eq("id", id)
@@ -180,8 +195,9 @@ export async function DELETE(
     return NextResponse.json({ message: "Schedule deleted" });
   } catch (error) {
     console.error("Error deleting schedule:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to delete schedule" },
+      { error: errorMessage || "Failed to delete schedule" },
       { status: 500 }
     );
   }
