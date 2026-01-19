@@ -19,6 +19,9 @@ interface Timeframe {
   id?: string;
   startTime: string;
   endTime: string;
+  mealType: string;
+  mealStart: string;
+  mealEnd: string;
 }
 
 interface WorkScheduleFormProps {
@@ -26,11 +29,15 @@ interface WorkScheduleFormProps {
     id: string;
     shift_id: string;
     shift_type: string;
+    description?: string | null;
     work_schedule_timeframes: Array<{
       id: string;
       start_time: string;
       end_time: string;
       frame_order: number;
+      meal_type?: string | null;
+      meal_start?: string | null;
+      meal_end?: string | null;
     }>;
   };
   onSubmit: (data: any) => Promise<void>;
@@ -46,6 +53,7 @@ export function WorkScheduleForm({
   const [shiftType, setShiftType] = useState(
     schedule?.shift_type || "Continuous shift"
   );
+  const [description, setDescription] = useState(schedule?.description || "");
   const [timeframes, setTimeframes] = useState<Timeframe[]>(
     schedule?.work_schedule_timeframes
       ? schedule.work_schedule_timeframes
@@ -54,34 +62,93 @@ export function WorkScheduleForm({
             id: tf.id,
             startTime: tf.start_time,
             endTime: tf.end_time,
+            mealType: tf.meal_type || "paid",
+            mealStart: tf.meal_start || "",
+            mealEnd: tf.meal_end || "",
           }))
-      : [{ startTime: "", endTime: "" }]
+      : [{ startTime: "", endTime: "", mealType: "paid", mealStart: "", mealEnd: "" }]
   );
   const [overlapWarning, setOverlapWarning] = useState<string>("");
   const [submitError, setSubmitError] = useState<string>("");
   const [timeframeErrors, setTimeframeErrors] = useState<string[]>([]);
+  const [mealErrors, setMealErrors] = useState<string[]>([]);
+
+  const normalizeInterval = (start: string, end: string) => {
+    const [sH, sM] = start.split(":").map(Number);
+    const [eH, eM] = end.split(":").map(Number);
+    const s = sH * 60 + sM;
+    let e = eH * 60 + eM;
+    if (e < s) e += 24 * 60;
+    return { start: s, end: e };
+  };
+
+  const durationInMinutes = (start: string, end: string) => {
+    const [startHour, startMin] = start.split(":").map(Number);
+    const [endHour, endMin] = end.split(":").map(Number);
+    const startTotalMin = startHour * 60 + startMin;
+    let endTotalMin = endHour * 60 + endMin;
+
+    if (endTotalMin < startTotalMin) {
+      endTotalMin += 24 * 60;
+    }
+
+    return endTotalMin - startTotalMin;
+  };
+
+  const mealWithinTimeframe = (tf: Timeframe) => {
+    if (!tf.mealStart || !tf.mealEnd) return true;
+    if (!tf.startTime || !tf.endTime) return false;
+
+    const meal = normalizeInterval(tf.mealStart, tf.mealEnd);
+    const frame = normalizeInterval(tf.startTime, tf.endTime);
+
+    let mealStartAligned = meal.start;
+    let mealEndAligned = meal.end;
+    if (mealStartAligned < frame.start) {
+      mealStartAligned += 24 * 60;
+      mealEndAligned += 24 * 60;
+    }
+
+    return frame.start <= mealStartAligned && mealEndAligned <= frame.end;
+  };
 
   // Calculate total shift hours
   const calculateShiftHours = () => {
     let totalMinutes = 0;
     for (const tf of timeframes) {
       if (tf.startTime && tf.endTime) {
-        const [startHour, startMin] = tf.startTime.split(":").map(Number);
-        const [endHour, endMin] = tf.endTime.split(":").map(Number);
-        const startTotalMin = startHour * 60 + startMin;
-        let endTotalMin = endHour * 60 + endMin;
-
-        // Handle end time before start time (spans midnight)
-        if (endTotalMin < startTotalMin) {
-          endTotalMin += 24 * 60;
-        }
-
-        totalMinutes += endTotalMin - startTotalMin;
+        totalMinutes += durationInMinutes(tf.startTime, tf.endTime);
       }
     }
 
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
+    return `${hours}h ${minutes}m`;
+  };
+
+  const calculateExpectedWorkHours = () => {
+    let totalMinutes = 0;
+    let unpaidMealMinutes = 0;
+
+    for (const tf of timeframes) {
+      if (tf.startTime && tf.endTime) {
+        totalMinutes += durationInMinutes(tf.startTime, tf.endTime);
+      }
+
+      if (
+        tf.mealType === "unpaid" &&
+        tf.mealStart &&
+        tf.mealEnd &&
+        tf.startTime &&
+        tf.endTime
+      ) {
+        unpaidMealMinutes += durationInMinutes(tf.mealStart, tf.mealEnd);
+      }
+    }
+
+    const netMinutes = Math.max(0, totalMinutes - unpaidMealMinutes);
+    const hours = Math.floor(netMinutes / 60);
+    const minutes = netMinutes % 60;
     return `${hours}h ${minutes}m`;
   };
 
@@ -148,14 +215,49 @@ export function WorkScheduleForm({
     return errors.filter(Boolean).length === 0;
   };
 
+  const validateMeals = () => {
+    const errors: string[] = [];
+
+    timeframes.forEach((tf, index) => {
+      if (!tf.mealType) {
+        errors[index] = "Meal type is required";
+        return;
+      }
+
+      if (!tf.mealStart && !tf.mealEnd) return;
+
+      if (!tf.mealStart || !tf.mealEnd) {
+        errors[index] = "Both meal start and end are required if one is set";
+        return;
+      }
+
+      const meal = normalizeInterval(tf.mealStart, tf.mealEnd);
+      if (meal.end <= meal.start) {
+        errors[index] = "Meal end must be later than meal start";
+        return;
+      }
+
+      if (!mealWithinTimeframe(tf)) {
+        errors[index] = "Meal timeframe must be inside this shift timeframe";
+      }
+    });
+
+    setMealErrors(errors);
+    return errors.filter(Boolean).length === 0;
+  };
+
   useEffect(() => {
     checkOverlap();
     validateEndTimeAfterStartTime();
+    validateMeals();
   }, [timeframes]);
 
   const addTimeframe = () => {
     if (timeframes.length < 5) {
-      setTimeframes([...timeframes, { startTime: "", endTime: "" }]);
+      setTimeframes([
+        ...timeframes,
+        { startTime: "", endTime: "", mealType: "paid", mealStart: "", mealEnd: "" },
+      ]);
     }
   };
 
@@ -167,7 +269,7 @@ export function WorkScheduleForm({
 
   const updateTimeframe = (
     index: number,
-    field: "startTime" | "endTime",
+    field: "startTime" | "endTime" | "mealType" | "mealStart" | "mealEnd",
     value: string
   ) => {
     const newTimeframes = [...timeframes];
@@ -200,13 +302,22 @@ export function WorkScheduleForm({
       return;
     }
 
+    if (!validateMeals()) {
+      setSubmitError("Meal validation failed");
+      return;
+    }
+
     try {
       await onSubmit({
         shiftId,
         shiftType,
+        description: description.trim() || null,
         timeframes: timeframes.map((tf) => ({
           startTime: tf.startTime,
           endTime: tf.endTime,
+          mealType: tf.mealType,
+          mealStart: tf.mealStart || null,
+          mealEnd: tf.mealEnd || null,
         })),
       });
     } catch (error) {
@@ -239,6 +350,17 @@ export function WorkScheduleForm({
           value={shiftId}
           onChange={(e) => setShiftId(e.target.value)}
           placeholder="e.g., SHIFT001"
+          disabled={isLoading}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="description">Description (optional)</Label>
+        <Input
+          id="description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Add a short note"
           disabled={isLoading}
         />
       </div>
@@ -313,6 +435,83 @@ export function WorkScheduleForm({
                 <AlertDescription>{timeframeErrors[index]}</AlertDescription>
               </Alert>
             )}
+
+            <div className="space-y-3 pt-1">
+              <div className="flex items-center gap-3">
+                <Label htmlFor={`meal-type-${index}`} className="whitespace-nowrap">
+                  Meal
+                </Label>
+                <Select
+                  value={timeframe.mealType}
+                  onValueChange={(val) => updateTimeframe(index, "mealType", val)}
+                  disabled={isLoading}
+                >
+                  <SelectTrigger id={`meal-type-${index}`} className="w-44">
+                    <SelectValue placeholder="Select meal type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="unpaid">Unpaid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor={`meal-start-${index}`}>Shift meal start</Label>
+                  <div className="relative">
+                    <Input
+                      id={`meal-start-${index}`}
+                      type="time"
+                      value={timeframe.mealStart}
+                      onChange={(e) => updateTimeframe(index, "mealStart", e.target.value)}
+                      disabled={isLoading}
+                      className="pr-8"
+                    />
+                    {timeframe.mealStart && (
+                      <button
+                        type="button"
+                        onClick={() => updateTimeframe(index, "mealStart", "")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        disabled={isLoading}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`meal-end-${index}`}>Shift meal end</Label>
+                  <div className="relative">
+                    <Input
+                      id={`meal-end-${index}`}
+                      type="time"
+                      value={timeframe.mealEnd}
+                      onChange={(e) => updateTimeframe(index, "mealEnd", e.target.value)}
+                      disabled={isLoading}
+                      className="pr-8"
+                    />
+                    {timeframe.mealEnd && (
+                      <button
+                        type="button"
+                        onClick={() => updateTimeframe(index, "mealEnd", "")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        disabled={isLoading}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {mealErrors[index] && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{mealErrors[index]}</AlertDescription>
+                </Alert>
+              )}
+            </div>
           </Card>
         ))}
 
@@ -340,6 +539,16 @@ export function WorkScheduleForm({
         <Input
           id="shift-hours"
           value={calculateShiftHours()}
+          readOnly
+          className="bg-gray-50"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="expected-hours">Expected Work Hours</Label>
+        <Input
+          id="expected-hours"
+          value={calculateExpectedWorkHours()}
           readOnly
           className="bg-gray-50"
         />

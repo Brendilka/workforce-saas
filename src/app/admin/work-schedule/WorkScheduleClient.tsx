@@ -11,7 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogClose,
 } from "@/components/ui/dialog";
 import { WorkScheduleForm } from "@/components/work-schedule-form";
 
@@ -20,12 +19,16 @@ interface Timeframe {
   start_time: string;
   end_time: string;
   frame_order: number;
+  meal_type?: string | null;
+  meal_start?: string | null;
+  meal_end?: string | null;
 }
 
 interface WorkSchedule {
   id: string;
   shift_id: string;
   shift_type: string;
+   description?: string | null;
   created_at: string;
   work_schedule_timeframes: Timeframe[];
 }
@@ -75,7 +78,16 @@ export function WorkScheduleClient() {
         body: JSON.stringify(formData),
       });
 
-      if (!response.ok) throw new Error("Failed to save schedule");
+      if (!response.ok) {
+        let message = "Failed to save schedule";
+        try {
+          const err = await response.json();
+          if (err?.error) message = err.error;
+        } catch (_) {
+          // ignore parse errors
+        }
+        throw new Error(message);
+      }
 
       await fetchSchedules();
       setIsDialogOpen(false);
@@ -136,9 +148,13 @@ export function WorkScheduleClient() {
       />
 
       <Dialog open={isDialogOpen} onOpenChange={(open) => {
-        // Only allow closing if the dialog is being opened, not closed
-        // This prevents closing by clicking outside
-        if (open) setIsDialogOpen(true);
+        // Only close on explicit X click or successful submit
+        // Prevent closing from overlay/outside clicks by ignoring them
+        if (!open && isDialogOpen) {
+          // Dialog tried to close from outside - prevent it
+          return;
+        }
+        setIsDialogOpen(open);
       }}>
         <DialogTrigger asChild>
           <Button onClick={() => {
@@ -149,7 +165,11 @@ export function WorkScheduleClient() {
             Add Schedule
           </Button>
         </DialogTrigger>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent 
+          className="max-w-md max-h-[90vh] overflow-y-auto [&>button.absolute.right-4.top-4]:hidden"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <div className="flex justify-between items-center">
               <DialogTitle>
@@ -200,42 +220,25 @@ export function WorkScheduleClient() {
                   <p className="text-sm text-gray-600">
                     Type: {schedule.shift_type}
                   </p>
+                  {schedule.description && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      {schedule.description}
+                    </p>
+                  )}
                 </div>
 
                 {hoveredScheduleId === schedule.id && (
                   <div className="flex gap-2">
-                    <Dialog open={editingSchedule?.id === schedule.id} onOpenChange={(open) => {
-                      if (!open) setEditingSchedule(null);
-                    }}>
-                      <DialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingSchedule(schedule)}
-                        >
-                          <Edit2 className="h-4 w-4 text-blue-500" />
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-                        <DialogHeader>
-                          <div className="flex justify-between items-center">
-                            <DialogTitle>Edit Schedule</DialogTitle>
-                            <button
-                              onClick={() => setEditingSchedule(null)}
-                              className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
-                              aria-label="Close"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        </DialogHeader>
-                        <WorkScheduleForm
-                          schedule={editingSchedule || schedule}
-                          onSubmit={handleSubmit}
-                          isLoading={isFormLoading}
-                        />
-                      </DialogContent>
-                    </Dialog>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setEditingSchedule(schedule);
+                        setIsDialogOpen(true);
+                      }}
+                    >
+                      <Edit2 className="h-4 w-4 text-blue-500" />
+                    </Button>
 
                     <Button
                       variant="ghost"
@@ -252,9 +255,14 @@ export function WorkScheduleClient() {
                 {schedule.work_schedule_timeframes
                   .sort((a, b) => a.frame_order - b.frame_order)
                   .map((tf, idx) => (
-                    <p key={tf.id} className="text-sm text-gray-600">
-                      Time Frame {idx + 1}: {formatTimeframe(tf)}
-                    </p>
+                    <div key={tf.id} className="text-sm text-gray-600">
+                      <p>Time Frame {idx + 1}: {formatTimeframe(tf)}</p>
+                      {tf.meal_start && tf.meal_end && (
+                        <p className="ml-4 text-xs">
+                          Meal ({tf.meal_type}): {tf.meal_start} - {tf.meal_end}
+                        </p>
+                      )}
+                    </div>
                   ))}
               </div>
 
