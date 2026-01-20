@@ -54,7 +54,7 @@ function parseHourInput(input: string): string {
 
 // Parse minute input: accepts "0-59"
 function parseMinuteInput(input: string): string {
-  if (!input.trim()) return "00";
+  if (!input.trim()) return "";
   
   const normalized = input.trim();
   const match = normalized.match(/^(\d{1,2})$/);
@@ -76,29 +76,49 @@ interface HourInputProps {
 }
 
 function HourInput({ id, value, onChange, disabled = false }: HourInputProps) {
-  const [displayValue, setDisplayValue] = useState(value);
+  const [displayValue, setDisplayValue] = useState(value === "00" ? "" : value);
 
   useEffect(() => {
-    setDisplayValue(value);
+    setDisplayValue(value === "00" ? "" : value);
   }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.target.value;
+    let input = e.target.value;
+    
+    // Remove non-alphanumeric characters except a/p
+    input = input.replace(/[^0-9ap]/gi, "");
+    
+    // If more than 2 numeric digits, rotate (keep last 2)
+    const numericPart = input.replace(/[ap]/gi, "");
+    const letterPart = input.match(/[ap]/gi)?.[0] || "";
+    
+    if (numericPart.length > 2) {
+      input = numericPart.slice(-2) + letterPart;
+    }
+    
     setDisplayValue(input);
     
     const parsed = parseHourInput(input);
     if (parsed) {
       onChange(parsed);
+    } else if (input === "") {
+      onChange("");
     }
   };
 
   const handleBlur = () => {
+    if (!displayValue.trim()) {
+      setDisplayValue("");
+      onChange("");
+      return;
+    }
+    
     const parsed = parseHourInput(displayValue);
     if (parsed) {
       setDisplayValue(parsed);
       onChange(parsed);
     } else {
-      setDisplayValue(value);
+      setDisplayValue(value === "00" ? "" : value);
     }
   };
 
@@ -111,7 +131,6 @@ function HourInput({ id, value, onChange, disabled = false }: HourInputProps) {
       onBlur={handleBlur}
       disabled={disabled}
       placeholder="0-23 or 9p"
-      maxLength={3}
       className="font-mono text-center"
     />
   );
@@ -125,29 +144,46 @@ interface MinuteInputProps {
 }
 
 function MinuteInput({ id, value, onChange, disabled = false }: MinuteInputProps) {
-  const [displayValue, setDisplayValue] = useState(value);
+  const [displayValue, setDisplayValue] = useState(value === "00" ? "" : value);
 
   useEffect(() => {
-    setDisplayValue(value);
+    setDisplayValue(value === "00" ? "" : value);
   }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.target.value;
+    let input = e.target.value;
+    
+    // Remove non-numeric characters
+    input = input.replace(/[^0-9]/g, "");
+    
+    // If more than 2 digits, rotate (keep last 2)
+    if (input.length > 2) {
+      input = input.slice(-2);
+    }
+    
     setDisplayValue(input);
     
     const parsed = parseMinuteInput(input);
     if (parsed) {
       onChange(parsed);
+    } else if (input === "") {
+      onChange("");
     }
   };
 
   const handleBlur = () => {
+    if (!displayValue.trim()) {
+      setDisplayValue("");
+      onChange("");
+      return;
+    }
+    
     const parsed = parseMinuteInput(displayValue);
     if (parsed) {
       setDisplayValue(parsed);
       onChange(parsed);
     } else {
-      setDisplayValue(value);
+      setDisplayValue(value === "00" ? "" : value);
     }
   };
 
@@ -306,7 +342,7 @@ export function WorkScheduleForm({
             mealStart: tf.meal_start || "",
             mealEnd: tf.meal_end || "",
           }))
-      : [{ startTime: "", endTime: "", mealType: "paid", mealStart: "", mealEnd: "" }]
+      : [{ startTime: ":", endTime: ":", mealType: "paid", mealStart: ":", mealEnd: ":" }]
   );
   const [overlapWarning, setOverlapWarning] = useState<string>("");
   const [submitError, setSubmitError] = useState<string>("");
@@ -517,28 +553,28 @@ export function WorkScheduleForm({
     
     if (field === "startTimeHour") {
       const [, min] = tf.startTime.split(":");
-      tf.startTime = `${value}:${min || "00"}`;
+      tf.startTime = `${value || ""}:${min || ""}`;
     } else if (field === "startTimeMinute") {
       const [hour] = tf.startTime.split(":");
-      tf.startTime = `${hour || "00"}:${value}`;
+      tf.startTime = `${hour || ""}:${value || ""}`;
     } else if (field === "endTimeHour") {
       const [, min] = tf.endTime.split(":");
-      tf.endTime = `${value}:${min || "00"}`;
+      tf.endTime = `${value || ""}:${min || ""}`;
     } else if (field === "endTimeMinute") {
       const [hour] = tf.endTime.split(":");
-      tf.endTime = `${hour || "00"}:${value}`;
+      tf.endTime = `${hour || ""}:${value || ""}`;
     } else if (field === "mealStartHour") {
       const [, min] = tf.mealStart.split(":");
-      tf.mealStart = `${value}:${min || "00"}`;
+      tf.mealStart = `${value || ""}:${min || ""}`;
     } else if (field === "mealStartMinute") {
       const [hour] = tf.mealStart.split(":");
-      tf.mealStart = `${hour || "00"}:${value}`;
+      tf.mealStart = `${hour || ""}:${value || ""}`;
     } else if (field === "mealEndHour") {
       const [, min] = tf.mealEnd.split(":");
-      tf.mealEnd = `${value}:${min || "00"}`;
+      tf.mealEnd = `${value || ""}:${min || ""}`;
     } else if (field === "mealEndMinute") {
       const [hour] = tf.mealEnd.split(":");
-      tf.mealEnd = `${hour || "00"}:${value}`;
+      tf.mealEnd = `${hour || ""}:${value || ""}`;
     } else {
       (tf as any)[field] = value;
     }
@@ -676,7 +712,7 @@ export function WorkScheduleForm({
                 <Label htmlFor={`start-hour-${index}`}>Start Hour</Label>
                 <HourInput
                   id={`start-hour-${index}`}
-                  value={timeframe.startTime.split(":")[0] || "00"}
+                  value={timeframe.startTime.split(":")[0] || ""}
                   onChange={(hour) => updateTimeframe(index, "startTimeHour", hour)}
                   disabled={isLoading}
                 />
@@ -685,7 +721,7 @@ export function WorkScheduleForm({
                 <Label htmlFor={`start-min-${index}`}>Min</Label>
                 <MinuteInput
                   id={`start-min-${index}`}
-                  value={timeframe.startTime.split(":")[1] || "00"}
+                  value={timeframe.startTime.split(":")[1] || ""}
                   onChange={(min) => updateTimeframe(index, "startTimeMinute", min)}
                   disabled={isLoading}
                 />
@@ -694,7 +730,7 @@ export function WorkScheduleForm({
                 <Label htmlFor={`end-hour-${index}`}>End Hour</Label>
                 <HourInput
                   id={`end-hour-${index}`}
-                  value={timeframe.endTime.split(":")[0] || "00"}
+                  value={timeframe.endTime.split(":")[0] || ""}
                   onChange={(hour) => updateTimeframe(index, "endTimeHour", hour)}
                   disabled={isLoading}
                 />
@@ -703,7 +739,7 @@ export function WorkScheduleForm({
                 <Label htmlFor={`end-min-${index}`}>Min</Label>
                 <MinuteInput
                   id={`end-min-${index}`}
-                  value={timeframe.endTime.split(":")[1] || "00"}
+                  value={timeframe.endTime.split(":")[1] || ""}
                   onChange={(min) => updateTimeframe(index, "endTimeMinute", min)}
                   disabled={isLoading}
                 />
@@ -741,7 +777,7 @@ export function WorkScheduleForm({
                   <Label htmlFor={`meal-start-hour-${index}`}>Meal Start Hour</Label>
                   <HourInput
                     id={`meal-start-hour-${index}`}
-                    value={timeframe.mealStart.split(":")[0] || "00"}
+                    value={timeframe.mealStart.split(":")[0] || ""}
                     onChange={(hour) => updateTimeframe(index, "mealStartHour", hour)}
                     disabled={isLoading}
                   />
@@ -750,7 +786,7 @@ export function WorkScheduleForm({
                   <Label htmlFor={`meal-start-min-${index}`}>Min</Label>
                   <MinuteInput
                     id={`meal-start-min-${index}`}
-                    value={timeframe.mealStart.split(":")[1] || "00"}
+                    value={timeframe.mealStart.split(":")[1] || ""}
                     onChange={(min) => updateTimeframe(index, "mealStartMinute", min)}
                     disabled={isLoading}
                   />
@@ -759,7 +795,7 @@ export function WorkScheduleForm({
                   <Label htmlFor={`meal-end-hour-${index}`}>Meal End Hour</Label>
                   <HourInput
                     id={`meal-end-hour-${index}`}
-                    value={timeframe.mealEnd.split(":")[0] || "00"}
+                    value={timeframe.mealEnd.split(":")[0] || ""}
                     onChange={(hour) => updateTimeframe(index, "mealEndHour", hour)}
                     disabled={isLoading}
                   />
@@ -768,7 +804,7 @@ export function WorkScheduleForm({
                   <Label htmlFor={`meal-end-min-${index}`}>Min</Label>
                   <MinuteInput
                     id={`meal-end-min-${index}`}
-                    value={timeframe.mealEnd.split(":")[1] || "00"}
+                    value={timeframe.mealEnd.split(":")[1] || ""}
                     onChange={(min) => updateTimeframe(index, "mealEndMinute", min)}
                     disabled={isLoading}
                   />
