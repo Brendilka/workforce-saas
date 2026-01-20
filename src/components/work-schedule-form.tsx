@@ -15,6 +15,95 @@ import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Plus, Trash2, AlertCircle } from "lucide-react";
 
+// Parse time input: accepts "HH:MM", "H:MM", "9p", "9pm", "21", "9a", etc.
+// Returns time in "HH:MM" format or empty string if invalid
+function parseTimeInput(input: string): string {
+  if (!input.trim()) return "";
+  
+  const normalized = input.trim().toLowerCase();
+  
+  // Check for 12-hour format with am/pm (e.g., "9p", "9pm", "9a", "9am")
+  const match12h = normalized.match(/^(\d{1,2})\s*([ap])(?:m)?$/);
+  if (match12h) {
+    let hour = parseInt(match12h[1]);
+    const meridiem = match12h[2];
+    
+    // Validate hour for 12h format
+    if (hour < 1 || hour > 12) return "";
+    
+    // Convert to 24h format
+    if (meridiem === "p" && hour !== 12) {
+      hour += 12;
+    } else if (meridiem === "a" && hour === 12) {
+      hour = 0;
+    }
+    
+    return `${String(hour).padStart(2, "0")}:00`;
+  }
+  
+  // Check for 24-hour format (e.g., "9", "09", "21", "9:30", "09:30")
+  const match24h = normalized.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (match24h) {
+    const hour = parseInt(match24h[1]);
+    const minute = match24h[2] ? parseInt(match24h[2]) : 0;
+    
+    if (hour < 0 || hour > 23) return "";
+    if (minute < 0 || minute > 59) return "";
+    
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  }
+  
+  return "";
+}
+
+interface TimeInputProps {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}
+
+function TimeInput({ id, value, onChange, disabled = false }: TimeInputProps) {
+  const [displayValue, setDisplayValue] = useState(value);
+
+  useEffect(() => {
+    setDisplayValue(value);
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target.value;
+    setDisplayValue(input);
+    
+    const parsed = parseTimeInput(input);
+    if (parsed) {
+      onChange(parsed);
+    }
+  };
+
+  const handleBlur = () => {
+    const parsed = parseTimeInput(displayValue);
+    if (parsed) {
+      setDisplayValue(parsed);
+      onChange(parsed);
+    } else {
+      setDisplayValue(value);
+    }
+  };
+
+  return (
+    <Input
+      id={id}
+      type="text"
+      value={displayValue}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      disabled={disabled}
+      placeholder="e.g., 9, 9p, 9am, 21:30"
+      className="font-mono"
+    />
+  );
+}
+
 interface Timeframe {
   id?: string;
   startTime: string;
@@ -405,27 +494,24 @@ export function WorkScheduleForm({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor={`start-${index}`}>Start Time</Label>
-                <Input
+                <TimeInput
                   id={`start-${index}`}
-                  type="time"
                   value={timeframe.startTime}
                   onChange={(e) =>
-                    updateTimeframe(index, "startTime", e.target.value)
+                    updateTimeframe(index, "startTime", e)
                   }
                   disabled={isLoading}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor={`end-${index}`}>End Time</Label>
-                <Input
+                <TimeInput
                   id={`end-${index}`}
-                  type="time"
                   value={timeframe.endTime}
                   onChange={(e) =>
-                    updateTimeframe(index, "endTime", e.target.value)
+                    updateTimeframe(index, "endTime", e)
                   }
                   disabled={isLoading}
-                  className={timeframeErrors[index] ? "border-red-500" : ""}
                 />
               </div>
             </div>
@@ -460,13 +546,11 @@ export function WorkScheduleForm({
                 <div className="space-y-2">
                   <Label htmlFor={`meal-start-${index}`}>Shift meal start</Label>
                   <div className="relative">
-                    <Input
+                    <TimeInput
                       id={`meal-start-${index}`}
-                      type="time"
                       value={timeframe.mealStart}
-                      onChange={(e) => updateTimeframe(index, "mealStart", e.target.value)}
+                      onChange={(val) => updateTimeframe(index, "mealStart", val)}
                       disabled={isLoading}
-                      className="pr-8"
                     />
                     {timeframe.mealStart && (
                       <button
@@ -483,13 +567,11 @@ export function WorkScheduleForm({
                 <div className="space-y-2">
                   <Label htmlFor={`meal-end-${index}`}>Shift meal end</Label>
                   <div className="relative">
-                    <Input
+                    <TimeInput
                       id={`meal-end-${index}`}
-                      type="time"
                       value={timeframe.mealEnd}
-                      onChange={(e) => updateTimeframe(index, "mealEnd", e.target.value)}
+                      onChange={(val) => updateTimeframe(index, "mealEnd", val)}
                       disabled={isLoading}
-                      className="pr-8"
                     />
                     {timeframe.mealEnd && (
                       <button
