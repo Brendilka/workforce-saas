@@ -893,6 +893,45 @@ export type Database = {
           },
         ]
       }
+      roster_patterns: {
+        Row: {
+          id: string
+          shift_id: string
+          start_date: string | null
+          end_date_type: string
+          end_date: string | null
+          weeks_pattern: string
+          start_pattern_week: string
+          start_day: string
+          pattern_rows: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          shift_id: string
+          start_date?: string | null
+          end_date_type?: string
+          end_date?: string | null
+          weeks_pattern?: string
+          start_pattern_week?: string
+          start_day?: string
+          pattern_rows: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          shift_id?: string
+          start_date?: string | null
+          end_date_type?: string
+          end_date?: string | null
+          weeks_pattern?: string
+          start_pattern_week?: string
+          start_day?: string
+          pattern_rows?: Json
+          created_at?: string
+        }
+        Relationships: []
+      }
       workload_pattern_details: {
         Row: {
           day_of_week: number | null
