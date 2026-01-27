@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Calendar as CalendarIcon, Plus, Trash2, Minus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import type { Json } from "@/types/supabase";
 
 interface TimeFrame {
   start_time: string;
@@ -817,7 +818,7 @@ export function RosterPatternsClient() {
         weeks_pattern: weeksPattern,
         start_pattern_week: startPatternWeek,
         start_day: startDay,
-        pattern_rows: patternRows,
+        pattern_rows: patternRows as unknown as Json,
       };
 
       if (editingPatternId) {
