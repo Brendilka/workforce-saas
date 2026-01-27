@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { getUser, getUserRole } from "@/lib/supabase/server";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { WorkScheduleClient } from "./WorkScheduleClient";
+import { PageHeader } from "@/components/layout/page-header";
+import { RosterPatternsClient } from "./roster-patterns-client";
 
-export default async function WorkSchedulePage() {
+export default async function RosterPatternsPage() {
   const user = await getUser();
   const role = await getUserRole();
 
@@ -30,7 +31,11 @@ export default async function WorkSchedulePage() {
       userName={userName}
       userInitials={userInitials}
     >
-      <WorkScheduleClient />
+      <PageHeader
+        title="Roster Patterns"
+        description="Manage roster patterns and shift cycles"
+      />
+      <RosterPatternsClient />
     </DashboardLayout>
   );
 }

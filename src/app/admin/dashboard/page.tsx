@@ -13,6 +13,7 @@ import {
   Shield,
   Database,
   CalendarClock,
+  Calendar,
 } from "lucide-react";
 
 const adminFeatures = [
@@ -49,6 +50,13 @@ const adminFeatures = [
     href: "/admin/work-schedule",
     icon: CalendarClock,
     description: "Manage work schedules and staffing patterns",
+    disabled: false,
+  },
+  {
+    title: "Roster Patterns",
+    href: "/admin/roster-patterns",
+    icon: Calendar,
+    description: "Manage roster patterns and shift cycles",
     disabled: false,
   },
   {
