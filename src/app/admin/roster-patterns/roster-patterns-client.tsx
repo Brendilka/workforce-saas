@@ -212,7 +212,7 @@ export function RosterPatternsClient() {
         .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setSavedPatterns((data as SavedPattern[]) || []);
+      setSavedPatterns((data as unknown as SavedPattern[]) || []);
     } catch (error) {
       console.error('Error loading saved patterns:', error);
     } finally {
