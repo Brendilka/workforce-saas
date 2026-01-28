@@ -1276,7 +1276,7 @@ export function RosterPatternsClient() {
                                 key={day}
                                 className={`${
                                   index < 6 ? 'border-r-2 border-gray-900' : ''
-                                } p-2 text-center relative select-none ${
+                                } p-2 text-center relative select-none align-top ${
                                   schedules.length > 0 ? 'bg-blue-50 cursor-pointer' : ''
                                 } ${
                                   isSelected ? 'ring-2 ring-blue-500 ring-inset' : ''
@@ -1385,9 +1385,9 @@ export function RosterPatternsClient() {
                                     {cellDate}
                                   </div>
                                 )}
-                                <div className="flex flex-col gap-1">
+                                <div className="flex flex-col gap-1 w-full">
                                   {overflowFromPreviousDay.length > 0 && (
-                                    <div className="text-xs leading-tight px-1 bg-orange-50 rounded border border-orange-300 italic order-first">
+                                    <div className="text-xs leading-tight px-1 bg-orange-50 rounded border border-orange-300 italic">
                                       <div className="text-orange-700">↑ overflow from prev</div>
                                     </div>
                                   )}
