@@ -204,11 +204,11 @@ export function WorkScheduleClient() {
           </p>
         </Card>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {schedules.map((schedule) => (
             <Card
               key={schedule.id}
-              className="p-4 hover:shadow-md transition-shadow relative"
+              className="p-4 hover:shadow-md transition-shadow relative flex flex-col"
               onMouseEnter={() => setHoveredScheduleId(schedule.id)}
               onMouseLeave={() => setHoveredScheduleId(null)}
             >
