@@ -514,10 +514,8 @@ export function WorkScheduleForm({
         const startTotalMin = startHour * 60 + startMin;
         const endTotalMin = endHour * 60 + endMin;
         
-        // Check if end time is after start time (allowing midnight span)
-        if (endTotalMin <= startTotalMin) {
-          errors[i] = "End time must be later than start time";
-        }
+        // Allow midnight-spanning shifts (end time can be before start time)
+        // Validation removed to support overnight shifts
       }
     }
     
@@ -526,41 +524,39 @@ export function WorkScheduleForm({
   };
 
   const validateMeals = () => {
-    const errors: string[] = [];
-
-    timeframes.forEach((tf, index) => {
-      // Meals are optional - skip validation if both start and end are empty or just ":"
-      const mealStartEmpty = !tf.mealStart || tf.mealStart === ":";
-      const mealEndEmpty = !tf.mealEnd || tf.mealEnd === ":";
-
-      // If both are empty, no validation needed (meals are optional)
-      if (mealStartEmpty && mealEndEmpty) return;
-
-      // If only one is set, that's an error
-      if (mealStartEmpty || mealEndEmpty) {
-        errors[index] = "Both meal start and end are required if one is set";
-        return;
-      }
-
-      // Both are set, validate they have proper values
-      const meal = normalizeInterval(tf.mealStart, tf.mealEnd);
-      if (meal.end <= meal.start) {
-        errors[index] = "Meal end must be later than meal start";
-        return;
-      }
-
-      if (!mealWithinTimeframe(tf)) {
-        errors[index] = "Meal timeframe must be inside this shift timeframe";
-      }
-    });
-
-    setMealErrors(errors);
-    return errors.filter(Boolean).length === 0;
+    // MEALS ARE OPTIONAL - ALWAYS RETURN TRUE (NO VALIDATION)
+    // Users can leave meal times completely blank
+    return true;
   };
 
   // Validate end time vs start time in real-time
   useEffect(() => {
     validateEndTimeAfterStartTime();
+    // Also clear meal errors for timeframes with empty meals
+    const newMealErrors = [...mealErrors];
+    timeframes.forEach((tf, index) => {
+      const mealStart = tf.mealStart || "";
+      const mealEnd = tf.mealEnd || "";
+      
+      const mealStartParts = mealStart.split(":").filter(p => p !== null && p !== undefined);
+      const mealEndParts = mealEnd.split(":").filter(p => p !== null && p !== undefined);
+      
+      const mealStartHour = mealStartParts[0]?.trim() || "";
+      const mealStartMin = mealStartParts[1]?.trim() || "";
+      const mealEndHour = mealEndParts[0]?.trim() || "";
+      const mealEndMin = mealEndParts[1]?.trim() || "";
+      
+      const hasAnyMealStart = mealStartHour !== "" && mealStartMin !== "";
+      const hasAnyMealEnd = mealEndHour !== "" && mealEndMin !== "";
+      
+      // If both meals are empty, clear any error for this timeframe
+      if (!hasAnyMealStart && !hasAnyMealEnd) {
+        newMealErrors[index] = "";
+      }
+    });
+    if (newMealErrors.some(e => e) !== mealErrors.some(e => e)) {
+      setMealErrors(newMealErrors);
+    }
   }, [timeframes]);
 
   const addTimeframe = () => {
@@ -632,10 +628,7 @@ export function WorkScheduleForm({
       return;
     }
 
-    if (!validateEndTimeAfterStartTime()) {
-      setSubmitError("End time must be later than start time for all timeframes");
-      return;
-    }
+    // Validation removed to allow midnight-spanning shifts
 
     if (!checkOverlap()) {
       setSubmitError("Cannot submit with overlapping timeframes");
@@ -763,7 +756,15 @@ export function WorkScheduleForm({
               </div>
 
               <div className="space-y-2">
-                <Label>Shift End</Label>
+                <Label>
+                  Shift End
+                  {timeframe.startTime && timeframe.endTime && 
+                   parseInt(timeframe.endTime.split(":")[0]) < parseInt(timeframe.startTime.split(":")[0]) && 
+                   <span className="ml-2 inline-block px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded">
+                     +1 day
+                   </span>
+                  }
+                </Label>
                 <div className="flex items-center gap-2">
                   <HourInput
                     id={`end-hour-${index}`}

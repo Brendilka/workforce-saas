@@ -100,16 +100,17 @@ export async function POST(request: NextRequest) {
 
     // Validate each timeframe's meal is within its own boundaries
     for (const tf of timeframes) {
-      if (tf.mealStart && tf.mealEnd) {
-        const meal = normalizeInterval(tf.mealStart, tf.mealEnd);
+      // Skip validation if both meal start and end are empty/null
+      const mealStart = tf.mealStart || "";
+      const mealEnd = tf.mealEnd || "";
+      
+      // Only validate if BOTH meal times are actually provided (non-empty)
+      if (mealStart && mealEnd && mealStart !== ":" && mealEnd !== ":") {
+        const meal = normalizeInterval(mealStart, mealEnd);
         const frame = normalizeInterval(tf.startTime, tf.endTime);
         
-        if (meal.end <= meal.start) {
-          return NextResponse.json(
-            { error: "Meal end must be later than meal start" },
-            { status: 400 }
-          );
-        }
+        // Don't validate meal end > meal start as meals can span midnight
+        // The normalizeInterval function handles midnight-crossing
 
         let ms = meal.start;
         let me = meal.end;
@@ -133,6 +134,15 @@ export async function POST(request: NextRequest) {
     // Generate ID for the new schedule
     const scheduleId = crypto.randomUUID();
 
+    // Detect if any timeframe spans midnight
+    const spansMidnight = timeframes.some((tf: { startTime: string; endTime: string }) => {
+      const [sH, sM] = tf.startTime.split(":").map(Number);
+      const [eH, eM] = tf.endTime.split(":").map(Number);
+      const startMins = sH * 60 + sM;
+      const endMins = eH * 60 + eM;
+      return endMins < startMins; // end_time < start_time indicates midnight crossing
+    });
+
     const { error: scheduleError } = await adminClient
       .from("work_schedules")
       .insert({
@@ -141,6 +151,7 @@ export async function POST(request: NextRequest) {
         shift_id: shiftId,
         shift_type: shiftType,
         description: description || null,
+        spans_midnight: spansMidnight,
       });
 
     if (scheduleError) throw scheduleError;
@@ -153,8 +164,8 @@ export async function POST(request: NextRequest) {
         end_time: tf.endTime,
         frame_order: index,
         meal_type: tf.mealType || 'paid',
-        meal_start: tf.mealStart || null,
-        meal_end: tf.mealEnd || null,
+        meal_start: (tf.mealStart && tf.mealStart !== ":") ? tf.mealStart : null,
+        meal_end: (tf.mealEnd && tf.mealEnd !== ":") ? tf.mealEnd : null,
       })
     );
 
