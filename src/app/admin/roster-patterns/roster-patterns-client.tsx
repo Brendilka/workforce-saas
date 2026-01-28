@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { Alert } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +14,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Calendar as CalendarIcon, Plus, Trash2, Minus } from "lucide-react";
+import { Calendar as CalendarIcon, Plus, Trash2, Minus, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Json } from "@/types/supabase";
 
@@ -981,6 +982,12 @@ export function RosterPatternsClient() {
           {/* Main Content Area - Left */}
           <div className="flex-1 overflow-auto">
           <Card className="p-6">
+            <Alert className="mb-6 bg-blue-50 border-blue-200">
+              <Info className="h-4 w-4 text-blue-600" />
+              <div className="ml-3 text-sm text-blue-800">
+                Drag the Work schedules from the list on the right and drop them to a day cell in the pattern. If you would like to add more Work schedules, please go to <a href="/admin/work-schedule" className="font-semibold underline hover:text-blue-900">this page</a>.
+              </div>
+            </Alert>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="border-2 border-gray-900 p-6">
                 <h2 className="text-2xl font-bold mb-6">Work Schedule Pattern</h2>
