@@ -21,27 +21,22 @@ import type { Json } from "@/types/supabase";
 interface TimeFrame {
   start_time: string;
   end_time: string;
+  meal_type?: string | null;
+  meal_start?: string | null;
+  meal_end?: string | null;
+  frame_order: number;
 }
 
 interface PatternRow {
   id: string;
   number: number;
-  monday: WorkSchedule | null;
-  tuesday: WorkSchedule | null;
-  wednesday: WorkSchedule | null;
-  thursday: WorkSchedule | null;
-  friday: WorkSchedule | null;
-  saturday: WorkSchedule | null;
-  sunday: WorkSchedule | null;
-}
-
-interface TimeFrame {
-  start_time: string;
-  end_time: string;
-  meal_type?: string | null;
-  meal_start?: string | null;
-  meal_end?: string | null;
-  frame_order: number;
+  monday: WorkSchedule[];
+  tuesday: WorkSchedule[];
+  wednesday: WorkSchedule[];
+  thursday: WorkSchedule[];
+  friday: WorkSchedule[];
+  saturday: WorkSchedule[];
+  sunday: WorkSchedule[];
 }
 
 interface WorkSchedule {
@@ -82,13 +77,13 @@ export function RosterPatternsClient() {
     {
       id: "1",
       number: 1,
-      monday: null,
-      tuesday: null,
-      wednesday: null,
-      thursday: null,
-      friday: null,
-      saturday: null,
-      sunday: null,
+      monday: [],
+      tuesday: [],
+      wednesday: [],
+      thursday: [],
+      friday: [],
+      saturday: [],
+      sunday: [],
     },
   ]);
   const [draggedSchedule, setDraggedSchedule] = useState<WorkSchedule | null>(null);
@@ -105,6 +100,7 @@ export function RosterPatternsClient() {
   const [loadingPatterns, setLoadingPatterns] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingPatternId, setEditingPatternId] = useState<string | null>(null);
+  const [overlapError, setOverlapError] = useState<{message: string, timeout?: NodeJS.Timeout} | null>(null);
 
   const supabase = createClient();
 
@@ -229,13 +225,13 @@ export function RosterPatternsClient() {
       {
         id: Date.now().toString(),
         number: newNumber,
-        monday: null,
-        tuesday: null,
-        wednesday: null,
-        thursday: null,
-        friday: null,
-        saturday: null,
-        sunday: null,
+        monday: [],
+        tuesday: [],
+        wednesday: [],
+        thursday: [],
+        friday: [],
+        saturday: [],
+        sunday: [],
       },
     ]);
     setWeeksPattern(newNumber.toString());
@@ -243,7 +239,7 @@ export function RosterPatternsClient() {
 
   const isRowNonEmpty = (row: PatternRow): boolean => {
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
-    return days.some(day => row[day] !== null);
+    return days.some(day => row[day].length > 0);
   };
 
   const removePatternRow = (id: string) => {
@@ -284,13 +280,13 @@ export function RosterPatternsClient() {
         newRows.push({
           id: Date.now().toString() + i,
           number: i + 1,
-          monday: null,
-          tuesday: null,
-          wednesday: null,
-          thursday: null,
-          friday: null,
-          saturday: null,
-          sunday: null,
+          monday: [],
+          tuesday: [],
+          wednesday: [],
+          thursday: [],
+          friday: [],
+          saturday: [],
+          sunday: [],
         });
       }
       setPatternRows(newRows);
@@ -309,7 +305,7 @@ export function RosterPatternsClient() {
       const row = patternRows.find(r => r.id === sel.rowId);
       if (!row) return false;
       const dayKey = sel.day.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
-      return !!row[dayKey];
+      return row[dayKey].length > 0;
     });
   };
 
@@ -342,6 +338,132 @@ export function RosterPatternsClient() {
     setStartDay(dayOfWeek);
   };
 
+  // Helper function to check if a shift spans midnight
+  const shiftSpansMidnight = (schedule: WorkSchedule): boolean => {
+    const timeframes = schedule.work_schedule_timeframes || [];
+    return timeframes.some(tf => {
+      const [sH, sM] = tf.start_time.split(':').map(Number);
+      const [eH, eM] = tf.end_time.split(':').map(Number);
+      const startMins = sH * 60 + sM;
+      const endMins = eH * 60 + eM;
+      return endMins < startMins; // midnight crossing
+    });
+  };
+
+  // Helper function to get next day name
+  const getNextDay = (dayName: string): string => {
+    const allDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const currentIndex = allDays.indexOf(dayName);
+    return allDays[(currentIndex + 1) % 7];
+  };
+
+  // Helper function to get previous day name
+  const getPreviousDay = (dayName: string): string => {
+    const allDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const currentIndex = allDays.indexOf(dayName);
+    return allDays[(currentIndex - 1 + 7) % 7];
+  };
+
+  const formatScheduleDisplay = (schedule: WorkSchedule): string => {
+    const timeframes = schedule.work_schedule_timeframes?.sort(
+      (a, b) => a.frame_order - b.frame_order
+    ) || [];
+    
+    const parts: string[] = [];
+    
+    timeframes.forEach((tf, idx) => {
+      parts.push(`${tf.start_time.slice(0, 5)}-${tf.end_time.slice(0, 5)}`);
+      if (tf.meal_start && tf.meal_end) {
+        parts.push(`M:${tf.meal_start.slice(0, 5)}-${tf.meal_end.slice(0, 5)}`);
+      }
+    });
+    
+    return parts.join(' | ');
+  };
+
+  // Helper function to truncate overnight shifts at midnight for display when at last cell in specify dates mode
+  const formatScheduleDisplayTruncated = (schedule: WorkSchedule, truncateAtMidnight: boolean): string => {
+    const timeframes = schedule.work_schedule_timeframes?.sort(
+      (a, b) => a.frame_order - b.frame_order
+    ) || [];
+    
+    const parts: string[] = [];
+    
+    timeframes.forEach((tf, idx) => {
+      let endTime = tf.end_time;
+      
+      // If truncating and this timeframe spans midnight, cut it at 00:00
+      if (truncateAtMidnight) {
+        const [endH, endM] = tf.end_time.split(':').map(Number);
+        const [startH, startM] = tf.start_time.split(':').map(Number);
+        const startMins = startH * 60 + startM;
+        const endMins = endH * 60 + endM;
+        
+        if (endMins < startMins) { // crosses midnight
+          endTime = '00:00';
+        }
+      }
+      
+      parts.push(`${tf.start_time.slice(0, 5)}-${endTime.slice(0, 5)}`);
+      if (tf.meal_start && tf.meal_end) {
+        parts.push(`M:${tf.meal_start.slice(0, 5)}-${tf.meal_end.slice(0, 5)}`);
+      }
+    });
+    
+    return parts.join(' | ');
+  };
+
+  // Helper function to check if two shifts overlap
+  const shiftsOverlap = (schedule1: WorkSchedule, schedule2: WorkSchedule): boolean => {
+    const tf1 = schedule1.work_schedule_timeframes || [];
+    const tf2 = schedule2.work_schedule_timeframes || [];
+    
+    for (const t1 of tf1) {
+      for (const t2 of tf2) {
+        const [s1H, s1M] = t1.start_time.split(':').map(Number);
+        const [e1H, e1M] = t1.end_time.split(':').map(Number);
+        const [s2H, s2M] = t2.start_time.split(':').map(Number);
+        const [e2H, e2M] = t2.end_time.split(':').map(Number);
+        
+        const start1 = s1H * 60 + s1M;
+        const end1 = e1H * 60 + e1M;
+        const start2 = s2H * 60 + s2M;
+        const end2 = e2H * 60 + e2M;
+        
+        // Handle midnight shifts
+        const spans1 = end1 < start1; // crosses midnight
+        const spans2 = end2 < start2; // crosses midnight
+        
+        if (spans1 && spans2) {
+          // Both span midnight: no overlap only if one ends before the other starts
+          if (!(end1 < start2 && end2 < start1)) {
+            return true;
+          }
+        } else if (spans1) {
+          // Only first spans midnight (00:00-end1 or start1-23:59)
+          // Overlaps if: start2 < end1 OR start2 >= start1
+          if (start2 < end1 || start2 >= start1) {
+            return true;
+          }
+        } else if (spans2) {
+          // Only second spans midnight (e.g., 22:00-00:00)
+          // Second shift covers start2 to end of day (1440 mins)
+          // Overlaps if first shift ends after second shift starts
+          if (end1 > start2) {
+            return true;
+          }
+        } else {
+          // Neither spans midnight: standard overlap check
+          if (start1 < end2 && start2 < end1) {
+            return true;
+          }
+        }
+      }
+    }
+    
+    return false;
+  };
+
   // Calculate the date for a specific cell (weekNumber, dayName)
   const handleDragStart = (schedule: WorkSchedule) => {
     setDraggedSchedule(schedule);
@@ -358,9 +480,34 @@ export function RosterPatternsClient() {
       rows.map(row => {
         if (row.id === rowId) {
           const dayKey = dayName.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
+          const dayValue = row[dayKey];
+          const existingShifts = Array.isArray(dayValue) ? dayValue : [];
+          
+          // Check if we've reached max 3 shifts
+          if (existingShifts.length >= 3) {
+            const message = `Cannot add ${draggedSchedule.shift_id}: maximum 3 shifts per day`;
+            setOverlapError({ message });
+            if (overlapError?.timeout) clearTimeout(overlapError.timeout);
+            const timeout = setTimeout(() => setOverlapError(null), 5000);
+            setOverlapError({ message, timeout });
+            return row; // Don't add the shift
+          }
+          
+          // Check for overlaps with existing shifts
+          for (const existing of existingShifts) {
+            if (shiftsOverlap(draggedSchedule, existing)) {
+              const message = `Cannot add ${draggedSchedule.shift_id}: overlaps with ${existing.shift_id}`;
+              setOverlapError({ message });
+              if (overlapError?.timeout) clearTimeout(overlapError.timeout);
+              const timeout = setTimeout(() => setOverlapError(null), 5000);
+              setOverlapError({ message, timeout });
+              return row; // Don't add the shift
+            }
+          }
+          
           return {
             ...row,
-            [dayKey]: draggedSchedule
+            [dayKey]: [...existingShifts, draggedSchedule]
           };
         }
         return row;
@@ -397,89 +544,7 @@ export function RosterPatternsClient() {
   };
 
   const handleLinearStretch = (targetRowId: string, targetDay: string) => {
-    if (multiSelect.length === 0) return;
-    
-    const selectionType = getSelectionType();
-    if (selectionType === 'rectangular' || selectionType === 'single') return;
-    
-    saveToHistory();
-    const allDays = getOrderedDays();
-    
-    if (selectionType === 'horizontal') {
-      // Stretch horizontally
-      const rowId = multiSelect[0].rowId;
-      const dayIndices = multiSelect.map(s => allDays.indexOf(s.day));
-      const minDay = Math.min(...dayIndices);
-      const maxDay = Math.max(...dayIndices);
-      const targetDayIndex = allDays.indexOf(targetDay);
-      
-      const newMinDay = Math.min(minDay, targetDayIndex);
-      const newMaxDay = Math.max(maxDay, targetDayIndex);
-      
-      const pattern: {[key: string]: WorkSchedule | null} = {};
-      multiSelect.forEach(sel => {
-        const dayKey = sel.day.toLowerCase();
-        const row = patternRows.find(r => r.id === sel.rowId);
-        if (row) {
-          pattern[dayKey] = row[dayKey as keyof Omit<PatternRow, 'id' | 'number'>] as WorkSchedule | null;
-        }
-      });
-      
-      setPatternRows(rows =>
-        rows.map(row => {
-          if (row.id === rowId) {
-            const updatedRow = {...row};
-            for (let d = newMinDay; d <= newMaxDay; d++) {
-              const dayName = allDays[d];
-              const dayKey = dayName.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
-              if (!updatedRow[dayKey] || multiSelect.some(s => s.day === dayName)) {
-                // Fill with pattern or keep existing
-                const patternDay = Object.keys(pattern)[0];
-                updatedRow[dayKey] = pattern[patternDay];
-              }
-            }
-            return updatedRow;
-          }
-          return row;
-        })
-      );
-    } else if (selectionType === 'vertical') {
-      // Stretch vertically
-      const day = multiSelect[0].day;
-      const rowIndices = multiSelect.map(s => patternRows.findIndex(r => r.id === s.rowId));
-      const minRow = Math.min(...rowIndices);
-      const maxRow = Math.max(...rowIndices);
-      const targetRowIndex = patternRows.findIndex(r => r.id === targetRowId);
-      
-      const newMinRow = Math.min(minRow, targetRowIndex);
-      const newMaxRow = Math.max(maxRow, targetRowIndex);
-      
-      const pattern: {[key: number]: WorkSchedule | null} = {};
-      multiSelect.forEach(sel => {
-        const rowIdx = patternRows.findIndex(r => r.id === sel.rowId);
-        const row = patternRows.find(r => r.id === sel.rowId);
-        if (row) {
-          const dayKey = sel.day.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
-          pattern[rowIdx] = row[dayKey] as WorkSchedule | null;
-        }
-      });
-      
-      setPatternRows(rows =>
-        rows.map((row, rowIdx) => {
-          if (rowIdx >= newMinRow && rowIdx <= newMaxRow) {
-            const updatedRow = {...row};
-            const dayKey = day.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
-            if (!updatedRow[dayKey] || multiSelect.some(s => s.rowId === row.id)) {
-              const patternIdx = Object.keys(pattern)[0];
-              updatedRow[dayKey] = pattern[Number(patternIdx)];
-            }
-            return updatedRow;
-          }
-          return row;
-        })
-      );
-    }
-    
+    // Simplified for array-based shifts - just clear for now
     setMultiSelect([]);
     setSelectionAnchor(null);
   };
@@ -718,7 +783,7 @@ export function RosterPatternsClient() {
           const dayKey = dayName.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
           return {
             ...row,
-            [dayKey]: null
+            [dayKey]: []
           };
         }
         return row;
@@ -758,23 +823,6 @@ export function RosterPatternsClient() {
 
     return currentRowIndex >= minRow && currentRowIndex <= maxRow &&
            currentDayIndex >= minDay && currentDayIndex <= maxDay;
-  };
-
-  const formatScheduleDisplay = (schedule: WorkSchedule): string => {
-    const timeframes = schedule.work_schedule_timeframes?.sort(
-      (a, b) => a.frame_order - b.frame_order
-    ) || [];
-    
-    const parts: string[] = [];
-    
-    timeframes.forEach((tf, idx) => {
-      parts.push(`${tf.start_time.slice(0, 5)}-${tf.end_time.slice(0, 5)}`);
-      if (tf.meal_start && tf.meal_end) {
-        parts.push(`M:${tf.meal_start.slice(0, 5)}-${tf.meal_end.slice(0, 5)}`);
-      }
-    });
-    
-    return parts.join(' | ');
   };
 
   const getCellDate = (weekNumber: number, dayName: string): string => {
@@ -854,7 +902,20 @@ export function RosterPatternsClient() {
     setWeeksPattern(pattern.weeks_pattern);
     setStartPatternWeek(pattern.start_pattern_week);
     setStartDay(pattern.start_day || 'Monday');
-    setPatternRows(pattern.pattern_rows || []);
+    
+    // Ensure pattern rows have arrays for each day (database might return non-arrays)
+    const normalizedRows = (pattern.pattern_rows || []).map(row => ({
+      ...row,
+      monday: Array.isArray(row.monday) ? row.monday : [],
+      tuesday: Array.isArray(row.tuesday) ? row.tuesday : [],
+      wednesday: Array.isArray(row.wednesday) ? row.wednesday : [],
+      thursday: Array.isArray(row.thursday) ? row.thursday : [],
+      friday: Array.isArray(row.friday) ? row.friday : [],
+      saturday: Array.isArray(row.saturday) ? row.saturday : [],
+      sunday: Array.isArray(row.sunday) ? row.sunday : [],
+    }));
+    
+    setPatternRows(normalizedRows);
     setEditingPatternId(pattern.id);
     setShowForm(true);
   };
@@ -919,13 +980,13 @@ export function RosterPatternsClient() {
                 setPatternRows([{
                   id: '1',
                   number: 1,
-                  monday: null,
-                  tuesday: null,
-                  wednesday: null,
-                  thursday: null,
-                  friday: null,
-                  saturday: null,
-                  sunday: null,
+                  monday: [],
+                  tuesday: [],
+                  wednesday: [],
+                  thursday: [],
+                  friday: [],
+                  saturday: [],
+                  sunday: [],
                 }]);
               }}
               size="lg"
@@ -988,6 +1049,19 @@ export function RosterPatternsClient() {
                 Drag the Work schedules from the list on the right and drop them to a day cell in the pattern. If you would like to add more Work schedules, please go to <a href="/admin/work-schedule" className="font-semibold underline hover:text-blue-900">this page</a>.
               </div>
             </Alert>
+            {overlapError && (
+              <Alert 
+                className="mb-6 bg-red-50 border-red-200 cursor-pointer hover:bg-red-100"
+                onClick={() => {
+                  if (overlapError?.timeout) clearTimeout(overlapError.timeout);
+                  setOverlapError(null);
+                }}
+              >
+                <div className="ml-0 text-sm text-red-800 font-semibold">
+                  {overlapError.message}
+                </div>
+              </Alert>
+            )}
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="border-2 border-gray-900 p-6">
                 <h2 className="text-2xl font-bold mb-6">Work Schedule Pattern</h2>
@@ -1143,7 +1217,57 @@ export function RosterPatternsClient() {
                           {getOrderedDays().map((day, index) => {
                             const cellDate = getCellDate(row.number, day);
                             const dayKey = day.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
-                            const schedule = row[dayKey] as WorkSchedule | null;
+                            const dayValue = row[dayKey];
+                            const schedules = Array.isArray(dayValue) ? dayValue : [];
+                            
+                            // Check if this is the last cell of the pattern (last row, Sunday)
+                            const isLastRow = row.number === patternRows.length;
+                            const isLastDay = day === 'Sunday';
+                            const isLastCell = isLastRow && isLastDay;
+                            
+                            // Check if this is the first cell of the pattern (first row, Monday)
+                            const isFirstRow = row.number === 1;
+                            const isFirstDay = day === 'Monday';
+                            const isFirstCell = isFirstRow && isFirstDay;
+                            
+                            // Get previous day's schedules to check for overflow into current day
+                            let previousDay = getPreviousDay(day);
+                            let previousDayKey = previousDay.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
+                            let previousDaySchedules: WorkSchedule[] = [];
+                            
+                            // For continuous mode: check if previous day has overnight shifts
+                            // If current day is Monday, check if previous Sunday (which could be in same row or previous row) has overnight shift
+                            if (day === 'Monday' && endDateType === 'continuous' && patternRows.length > 0) {
+                              // If this is the first Monday (week 1), check overflow from last Sunday of last week
+                              if (isFirstCell) {
+                                const lastRow = patternRows[patternRows.length - 1];
+                                const lastRowSundayValue = lastRow.sunday;
+                                previousDaySchedules = Array.isArray(lastRowSundayValue) ? lastRowSundayValue : [];
+                              } else {
+                                // For other Mondays, check from the previous row's Sunday
+                                const prevRowIndex = row.number - 2; // row.number is 1-indexed
+                                if (prevRowIndex >= 0) {
+                                  const prevRow = patternRows[prevRowIndex];
+                                  const prevRowSundayValue = prevRow.sunday;
+                                  previousDaySchedules = Array.isArray(prevRowSundayValue) ? prevRowSundayValue : [];
+                                }
+                              }
+                            }
+                            // For specify dates mode: don't show overflow from previous day
+                            else if (endDateType === 'specify') {
+                              previousDaySchedules = [];
+                            }
+                            else {
+                              const prevDayValue = row[previousDayKey];
+                              previousDaySchedules = Array.isArray(prevDayValue) ? prevDayValue : [];
+                            }
+                            
+                            // Get shifts from previous day that overflow into this day
+                            const overflowFromPreviousDay = previousDaySchedules.filter(s => shiftSpansMidnight(s));
+                            
+                            // Check if any schedule from this day overflows to next day (for display purposes)
+                            const hasOverflowToNextDay = schedules.some(s => shiftSpansMidnight(s));
+                            
                             const isSelected = selectedCell?.rowId === row.id && selectedCell?.day === day;
                             const isMultiSelected = multiSelect.some(s => s.rowId === row.id && s.day === day);
                             const isInStretch = isInStretchRange(row.id, day);
@@ -1153,7 +1277,7 @@ export function RosterPatternsClient() {
                                 className={`${
                                   index < 6 ? 'border-r-2 border-gray-900' : ''
                                 } p-2 text-center relative select-none ${
-                                  schedule ? 'bg-blue-50 cursor-pointer' : ''
+                                  schedules.length > 0 ? 'bg-blue-50 cursor-pointer' : ''
                                 } ${
                                   isSelected ? 'ring-2 ring-blue-500 ring-inset' : ''
                                 } ${
@@ -1164,10 +1288,10 @@ export function RosterPatternsClient() {
                                 onDragOver={handleDragOver}
                                 onDrop={() => handleDrop(row.id, day)}
                                 onMouseDown={(e) => {
-                                  if (schedule && !e.shiftKey) {
+                                  if (schedules.length > 0 && !e.shiftKey) {
                                     const edge = detectEdge(e, e.currentTarget);
                                     if (edge) {
-                                      handleStretchStart(e, row.id, day, schedule);
+                                      handleStretchStart(e, row.id, day, schedules[0]);
                                     } else {
                                       // Start drag selection
                                       setIsDraggingSelection(true);
@@ -1175,7 +1299,7 @@ export function RosterPatternsClient() {
                                       setSelectedCell({rowId: row.id, day});
                                       setMultiSelect([]);
                                     }
-                                  } else if (!schedule && !e.shiftKey) {
+                                  } else if (schedules.length === 0 && !e.shiftKey) {
                                     setIsDraggingSelection(true);
                                     setSelectionAnchor({rowId: row.id, day});
                                     setSelectedCell({rowId: row.id, day});
@@ -1233,7 +1357,7 @@ export function RosterPatternsClient() {
                                     handleStretchMove(row.id, day);
                                     return;
                                   }
-                                  if (schedule && !stretchStart) {
+                                  if (schedules.length > 0 && !stretchStart) {
                                     const edge = detectEdge(e, e.currentTarget);
                                     if (edge) {
                                       setHoverEdge({rowId: row.id, day, edge});
@@ -1245,28 +1369,77 @@ export function RosterPatternsClient() {
                                 onMouseLeave={() => setHoverEdge(null)}
                                 onClick={(e) => {
                                   if (!isDraggingSelection && multiSelect.length === 0) {
-                                    if (schedule) {
+                                    if (schedules.length > 0) {
                                       setSelectedCell({rowId: row.id, day});
                                     }
                                   }
                                 }}
                                 style={{
-                                  cursor: schedule && hoverEdge?.rowId === row.id && hoverEdge?.day === day
+                                  cursor: schedules.length > 0 && hoverEdge?.rowId === row.id && hoverEdge?.day === day
                                     ? getEdgeCursor(hoverEdge.edge)
-                                    : schedule ? 'pointer' : 'default'
+                                    : schedules.length > 0 ? 'pointer' : 'default'
                                 }}
                               >
-                                {cellDate && !schedule && (
+                                {cellDate && schedules.length === 0 && (
                                   <div className="text-xs text-gray-400">
                                     {cellDate}
                                   </div>
                                 )}
-                                {schedule && (
-                                  <div className="text-xs leading-tight break-words px-1">
-                                    <div className="font-bold">{schedule.shift_id}</div>
-                                    <div>{formatScheduleDisplay(schedule)}</div>
-                                  </div>
-                                )}
+                                <div className="flex flex-col gap-1">
+                                  {overflowFromPreviousDay.length > 0 && (
+                                    <div className="text-xs leading-tight px-1 bg-orange-50 rounded border border-orange-300 italic order-first">
+                                      <div className="text-orange-700">↑ overflow from prev</div>
+                                    </div>
+                                  )}
+                                  {[...schedules].sort((a, b) => {
+                                    // First, sort by start time of first timeframe
+                                    const aFirstTimeframe = a.work_schedule_timeframes?.[0];
+                                    const bFirstTimeframe = b.work_schedule_timeframes?.[0];
+                                    
+                                    if (aFirstTimeframe && bFirstTimeframe) {
+                                      const aStartParts = aFirstTimeframe.start_time.split(':').map(Number);
+                                      const bStartParts = bFirstTimeframe.start_time.split(':').map(Number);
+                                      const aStartMinutes = aStartParts[0] * 60 + aStartParts[1];
+                                      const bStartMinutes = bStartParts[0] * 60 + bStartParts[1];
+                                      
+                                      if (aStartMinutes !== bStartMinutes) {
+                                        return aStartMinutes - bStartMinutes; // Earlier time first
+                                      }
+                                    }
+                                    
+                                    // If start times are equal or unavailable, put midnight-spanning shifts at bottom
+                                    const aSpans = shiftSpansMidnight(a);
+                                    const bSpans = shiftSpansMidnight(b);
+                                    if (aSpans && !bSpans) return 1; // a goes to bottom
+                                    if (!aSpans && bSpans) return -1; // b goes to bottom
+                                    return 0; // maintain order
+                                  }).map((schedule, idx) => (
+                                    <div 
+                                      key={idx} 
+                                      className="text-xs leading-tight break-words px-1 bg-white rounded border border-blue-300 cursor-move"
+                                      draggable
+                                      onDragStart={() => {
+                                        handleDragStart(schedule);
+                                        setSelectedCell({rowId: row.id, day});
+                                      }}
+                                    >
+                                      <div className="font-bold text-blue-900">{schedule.shift_id}</div>
+                                      <div className="text-blue-700">
+                                        {isLastCell && endDateType === 'specify' && shiftSpansMidnight(schedule) ? 
+                                          formatScheduleDisplayTruncated(schedule, true) : 
+                                          formatScheduleDisplay(schedule)
+                                        }
+                                      </div>
+                                      {shiftSpansMidnight(schedule) && (
+                                        isLastCell && endDateType === 'specify' ? (
+                                          <div className="text-xs text-orange-700 italic">↓ Cut-off shift</div>
+                                        ) : endDateType === 'continuous' ? (
+                                          <div className="text-xs text-orange-700 italic">↓ Overflow</div>
+                                        ) : null
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
                               </td>
                             );
                           })}
