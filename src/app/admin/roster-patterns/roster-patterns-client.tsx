@@ -615,13 +615,13 @@ export function RosterPatternsClient() {
       const maxDay = Math.max(startDayIndex, endDayIndex);
       
       // Template: extract the schedule from each selected cell
-      const template: {[key: number]: WorkSchedule | null} = {};
+      const template: {[key: number]: WorkSchedule[]} = {};
       multiSelect.forEach(sel => {
         const rowIdx = patternRows.findIndex(r => r.id === sel.rowId);
         const row = patternRows.find(r => r.id === sel.rowId);
         if (row) {
           const dayKey = sel.day.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
-          template[rowIdx] = row[dayKey] as WorkSchedule | null;
+          template[rowIdx] = row[dayKey] as WorkSchedule[];
         }
       });
 
@@ -655,11 +655,11 @@ export function RosterPatternsClient() {
         const newMaxRow = Math.max(bounds.maxRow, targetRowIndex);
 
         // Template from the selected row across the selected day range
-        const template: {[key: string]: WorkSchedule | null} = {};
+        const template: {[key: string]: WorkSchedule[]} = {};
         multiSelect.forEach(sel => {
           const dayKey = sel.day.toLowerCase();
           const row = patternRows.find(r => r.id === sel.rowId);
-          if (row) template[dayKey] = row[dayKey as keyof Omit<PatternRow, 'id' | 'number'>] as WorkSchedule | null;
+          if (row) template[dayKey] = row[dayKey as keyof Omit<PatternRow, 'id' | 'number'>] as WorkSchedule[];
         });
 
         setPatternRows(rows =>
@@ -682,7 +682,7 @@ export function RosterPatternsClient() {
         const dayName = multiSelect[0].day;
         const dayKey = dayName.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
         const selectedRows = [...new Set(multiSelect.map(sel => patternRows.findIndex(r => r.id === sel.rowId)))].sort((a, b) => a - b);
-        const template = selectedRows.map(idx => patternRows[idx]?.[dayKey] as WorkSchedule | null);
+        const template = selectedRows.map(idx => patternRows[idx]?.[dayKey] as WorkSchedule[]);
         const newMinRow = Math.min(bounds.minRow, targetRowIndex);
         const newMaxRow = Math.max(bounds.maxRow, targetRowIndex);
 
@@ -719,8 +719,8 @@ export function RosterPatternsClient() {
             for (let dayIdx = minDay; dayIdx <= maxDay; dayIdx++) {
               const dayName = allDays[dayIdx];
               const dayKey = dayName.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
-              if (!updatedRow[dayKey]) {
-                updatedRow[dayKey] = stretchStart.schedule;
+              if (!updatedRow[dayKey] || updatedRow[dayKey].length === 0) {
+                updatedRow[dayKey] = [stretchStart.schedule];
               }
             }
             return updatedRow;
