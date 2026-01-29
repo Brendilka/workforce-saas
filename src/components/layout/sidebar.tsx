@@ -122,8 +122,8 @@ export function Sidebar({ userRole, userName, userInitials }: SidebarProps) {
         className="p-1 flex items-center justify-center hover:bg-gray-50 transition-colors cursor-pointer w-full"
       >
         <Image
-          src="/bdk-logo.png?v=15"
-          alt="BDK Time and Attendance"
+          src="/albus-logo.png"
+          alt="ALBUS Time and Attendance System"
           width={316}
           height={57}
           priority
