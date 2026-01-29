@@ -122,7 +122,7 @@ export function Sidebar({ userRole, userName, userInitials }: SidebarProps) {
         className="p-1 flex items-center justify-center hover:bg-gray-50 transition-colors cursor-pointer w-full"
       >
         <Image
-          src="/albus-logo.png"
+          src="/albus-logo.png?v=1"
           alt="ALBUS Time and Attendance System"
           width={316}
           height={57}

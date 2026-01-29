@@ -115,7 +115,7 @@ function LoginForm() {
       {/* Header with logo */}
       <header className="bg-primary text-primary-foreground py-4 px-4 text-center border-b-[5px] border-accent flex items-center justify-center">
         <Image
-          src="/albus-logo.png"
+          src="/albus-logo.png?v=1"
           alt="ALBUS Time and Attendance System"
           width={316}
           height={57}
