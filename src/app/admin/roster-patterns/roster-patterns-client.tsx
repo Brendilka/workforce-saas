@@ -667,12 +667,9 @@ export function RosterPatternsClient() {
         const timeBetween = getTimeBetweenShifts(lastEnd, nextStart, true);
         
         if (timeBetween < minHoursBetweenShifts) {
-          // Only mark if the last shift doesn't span midnight (overflow will be shown on next day instead)
-          if (!shiftSpansMidnight(lastScheduleOfDay)) {
-            // Mark the current day's last shift (the one that ends)
-            violatingShifts.push(lastScheduleOfDay);
-            violationDetails.set(lastScheduleOfDay.id, { actualHours: timeBetween });
-          }
+          // Always mark the current day's last shift (the one that ends) when there's insufficient gap
+          violatingShifts.push(lastScheduleOfDay);
+          violationDetails.set(lastScheduleOfDay.id, { actualHours: timeBetween });
         }
       }
     }
