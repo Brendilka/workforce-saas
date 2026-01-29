@@ -456,6 +456,18 @@ export function WorkScheduleForm({
     return `${hours}h ${minutes}m`;
   };
 
+  const calculateFrameHours = (index: number) => {
+    const tf = timeframes[index];
+    if (!tf || !tf.startTime || !tf.endTime) {
+      return "";
+    }
+
+    const totalMinutes = durationInMinutes(tf.startTime, tf.endTime);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}h ${minutes}m`;
+  };
+
   // Check for overlapping timeframes
   const checkOverlap = () => {
     setOverlapWarning("");
