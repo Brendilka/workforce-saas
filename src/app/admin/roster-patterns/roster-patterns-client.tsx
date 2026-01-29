@@ -554,11 +554,9 @@ export function RosterPatternsClient() {
     
     let diffMinutes = startMinutes - endMinutes;
     
-    // If shifts are on different days, always add 24 hours
-    if (isDifferentDay) {
-      diffMinutes += 24 * 60;
-    } else if (diffMinutes < 0) {
-      // Same day but time wrapped (shouldn't happen in normal cases)
+    // Only add 24 hours if times are "wrapped" (start time is before end time on the clock)
+    // This handles both same-day wraps and different-day calculations correctly
+    if (diffMinutes < 0) {
       diffMinutes += 24 * 60;
     }
     
@@ -589,28 +587,19 @@ export function RosterPatternsClient() {
     // Get shifts from previous day overflow
     const overflowShifts = getOverflowFromPreviousDay(row, dayName);
     
-    // Check for overlaps with overflow shifts
+    // Check for overlaps with overflow shifts (only mark overlaps, not time gaps)
     if (overflowShifts.length > 0) {
       const lastOverflow = overflowShifts[overflowShifts.length - 1];
       const firstSchedule = schedules[0];
       
-      // Check for actual time overlap first
+      // Only check for actual time overlap, not insufficient gap
+      // (Gap violations are marked on the previous day's shift)
       if (shiftsOverlap(firstSchedule, lastOverflow, true)) {
         violatingShifts.push(firstSchedule);
         const lastOverflowEnd = getShiftEndTime(lastOverflow);
         const firstScheduleStart = getShiftStartTime(firstSchedule);
         const timeBetween = getTimeBetweenShifts(lastOverflowEnd, firstScheduleStart);
         violationDetails.set(firstSchedule.id, { actualHours: timeBetween });
-      } else {
-        // Check time between if no overlap
-        const lastOverflowEnd = getShiftEndTime(lastOverflow);
-        const firstScheduleStart = getShiftStartTime(firstSchedule);
-        const timeBetween = getTimeBetweenShifts(lastOverflowEnd, firstScheduleStart, true);
-        
-        if (timeBetween < minHoursBetweenShifts) {
-          violatingShifts.push(firstSchedule);
-          violationDetails.set(firstSchedule.id, { actualHours: timeBetween });
-        }
       }
     }
 
