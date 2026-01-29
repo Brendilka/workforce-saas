@@ -548,13 +548,18 @@ export function RosterPatternsClient() {
     return hours * 60 + minutes;
   };
 
-  const getTimeBetweenShifts = (endTime: string, startTime: string): number => {
+  const getTimeBetweenShifts = (endTime: string, startTime: string, isDifferentDay: boolean = false): number => {
     const endMinutes = timeStringToMinutes(endTime);
     const startMinutes = timeStringToMinutes(startTime);
     
     let diffMinutes = startMinutes - endMinutes;
-    if (diffMinutes < 0) {
-      diffMinutes += 24 * 60; // Add 24 hours if end is next day
+    
+    // If shifts are on different days, always add 24 hours
+    if (isDifferentDay) {
+      diffMinutes += 24 * 60;
+    } else if (diffMinutes < 0) {
+      // Same day but time wrapped (shouldn't happen in normal cases)
+      diffMinutes += 24 * 60;
     }
     
     return diffMinutes / 60; // Convert to hours
@@ -600,7 +605,7 @@ export function RosterPatternsClient() {
         // Check time between if no overlap
         const lastOverflowEnd = getShiftEndTime(lastOverflow);
         const firstScheduleStart = getShiftStartTime(firstSchedule);
-        const timeBetween = getTimeBetweenShifts(lastOverflowEnd, firstScheduleStart);
+        const timeBetween = getTimeBetweenShifts(lastOverflowEnd, firstScheduleStart, true);
         
         if (timeBetween < minHoursBetweenShifts) {
           violatingShifts.push(firstSchedule);
@@ -621,7 +626,7 @@ export function RosterPatternsClient() {
         const firstCurrentShift = schedules[0];
         const previousEnd = getShiftEndTime(lastPreviousShift);
         const currentStart = getShiftStartTime(firstCurrentShift);
-        const timeBetween = getTimeBetweenShifts(previousEnd, currentStart);
+        const timeBetween = getTimeBetweenShifts(previousEnd, currentStart, true);
         
         if (timeBetween < minHoursBetweenShifts) {
           // Only mark if there's no overflow (overflow takes precedence)
@@ -659,7 +664,7 @@ export function RosterPatternsClient() {
         const firstScheduleOfNextDay = nextDaySchedules[0];
         const lastEnd = getShiftEndTime(lastScheduleOfDay);
         const nextStart = getShiftStartTime(firstScheduleOfNextDay);
-        const timeBetween = getTimeBetweenShifts(lastEnd, nextStart);
+        const timeBetween = getTimeBetweenShifts(lastEnd, nextStart, true);
         
         if (timeBetween < minHoursBetweenShifts) {
           // Only mark if the last shift doesn't span midnight (overflow will be shown on next day instead)
