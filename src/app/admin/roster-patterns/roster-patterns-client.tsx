@@ -1547,7 +1547,13 @@ export function RosterPatternsClient() {
                     const [startHour, startMin] = tf.start_time.split(':').map(Number);
                     const [endHour, endMin] = tf.end_time.split(':').map(Number);
                     const startMinutes = startHour * 60 + startMin;
-                    const endMinutes = endHour * 60 + endMin;
+                    let endMinutes = endHour * 60 + endMin;
+                    
+                    // Handle overnight shifts: if end is before start, add 24 hours
+                    if (endMinutes < startMinutes) {
+                      endMinutes += 24 * 60;
+                    }
+                    
                     totalMinutes += endMinutes - startMinutes;
                     
                     // Subtract meal time if unpaid
