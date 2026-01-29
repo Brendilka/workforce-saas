@@ -172,6 +172,51 @@ export function WorkScheduleClient() {
     return `${hours}h ${minutes}m`;
   };
 
+  const getShiftPeriod = (timeframes: Timeframe[]): 'night' | 'morning' | 'day' | 'evening' => {
+    if (timeframes.length === 0) return 'day';
+    const firstTimeframe = timeframes.sort((a, b) => a.frame_order - b.frame_order)[0];
+    const [hour] = firstTimeframe.start_time.split(':').map(Number);
+    
+    if (hour >= 0 && hour < 6) return 'night';
+    if (hour >= 6 && hour < 12) return 'morning';
+    if (hour >= 12 && hour < 18) return 'day';
+    return 'evening';
+  };
+
+  const sortSchedules = (schedules: WorkSchedule[]): WorkSchedule[] => {
+    return [...schedules].sort((a, b) => {
+      const aFirstFrame = a.work_schedule_timeframes.sort((x, y) => x.frame_order - y.frame_order)[0];
+      const bFirstFrame = b.work_schedule_timeframes.sort((x, y) => x.frame_order - y.frame_order)[0];
+      
+      if (!aFirstFrame || !bFirstFrame) return 0;
+      
+      // Compare start times
+      const aStartMinutes = timeToMinutes(aFirstFrame.start_time);
+      const bStartMinutes = timeToMinutes(bFirstFrame.start_time);
+      
+      if (aStartMinutes !== bStartMinutes) {
+        return aStartMinutes - bStartMinutes;
+      }
+      
+      // If start times are equal, compare end times (earlier end time comes first)
+      const aEndMinutes = timeToMinutes(aFirstFrame.end_time);
+      const bEndMinutes = timeToMinutes(bFirstFrame.end_time);
+      return aEndMinutes - bEndMinutes;
+    });
+  };
+
+  const timeToMinutes = (time: string): number => {
+    const [hours, minutes] = time.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+
+  const schedulesByPeriod = {
+    night: sortSchedules(schedules.filter(s => getShiftPeriod(s.work_schedule_timeframes) === 'night')),
+    morning: sortSchedules(schedules.filter(s => getShiftPeriod(s.work_schedule_timeframes) === 'morning')),
+    day: sortSchedules(schedules.filter(s => getShiftPeriod(s.work_schedule_timeframes) === 'day')),
+    evening: sortSchedules(schedules.filter(s => getShiftPeriod(s.work_schedule_timeframes) === 'evening')),
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -236,73 +281,322 @@ export function WorkScheduleClient() {
           </p>
         </Card>
       ) : (
-        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {schedules.map((schedule) => (
-            <Card
-              key={schedule.id}
-              className="p-4 hover:shadow-md transition-shadow relative flex flex-col"
-              onMouseEnter={() => setHoveredScheduleId(schedule.id)}
-              onMouseLeave={() => setHoveredScheduleId(null)}
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex-1">
-                  <h3 className="font-semibold text-gray-900">
-                    {schedule.shift_id}
-                  </h3>
-                  <p className="text-sm text-gray-600">
-                    Type: {schedule.shift_type}
-                  </p>
-                  {schedule.description && (
-                    <p className="text-sm text-gray-600 mt-1">
-                      {schedule.description}
-                    </p>
-                  )}
-                </div>
-
-                {hoveredScheduleId === schedule.id && (
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setEditingSchedule(schedule);
-                        setIsDialogOpen(true);
-                      }}
-                    >
-                      <Edit2 className="h-4 w-4 text-blue-500" />
-                    </Button>
-
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(schedule.id)}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                {schedule.work_schedule_timeframes
-                  .sort((a, b) => a.frame_order - b.frame_order)
-                  .map((tf, idx) => (
-                    <div key={tf.id} className="text-sm text-gray-600">
-                      <p>Time Frame {idx + 1}: {formatTimeframe(tf)}</p>
-                      {tf.meal_start && tf.meal_end && (
-                        <p className="ml-4 text-xs">
-                          Meal ({tf.meal_type}): {tf.meal_start} - {tf.meal_end}
+        <div className="grid grid-cols-4 gap-4">
+          {/* Night Column (0:00-5:59) */}
+          <div className="flex flex-col gap-4">
+            <div className="bg-blue-900 text-white p-3 rounded-t-lg text-center font-semibold">
+              Night (0:00-5:59)
+            </div>
+            <div className="bg-blue-900/10 p-4 rounded-b-lg min-h-[200px] space-y-4">
+              {schedulesByPeriod.night.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center">No night shifts</p>
+              ) : (
+                schedulesByPeriod.night.map((schedule) => (
+                  <Card
+                    key={schedule.id}
+                    className="p-4 hover:shadow-md transition-shadow relative flex flex-col bg-white"
+                    onMouseEnter={() => setHoveredScheduleId(schedule.id)}
+                    onMouseLeave={() => setHoveredScheduleId(null)}
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900">
+                          {schedule.shift_id}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Type: {schedule.shift_type}
                         </p>
+                        {schedule.description && (
+                          <p className="text-sm text-gray-600 mt-1">
+                            {schedule.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {hoveredScheduleId === schedule.id && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditingSchedule(schedule);
+                              setIsDialogOpen(true);
+                            }}
+                          >
+                            <Edit2 className="h-4 w-4 text-blue-500" />
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(schedule.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
                       )}
                     </div>
-                  ))}
-              </div>
 
-              <p className="text-sm font-medium text-gray-700 mt-3">
-                Expected work hours: {calculateExpectedWorkHours(schedule.work_schedule_timeframes)}
-              </p>
-            </Card>
-          ))}
+                    <div className="space-y-2">
+                      {schedule.work_schedule_timeframes
+                        .sort((a, b) => a.frame_order - b.frame_order)
+                        .map((tf, idx) => (
+                          <div key={tf.id} className="text-sm text-gray-600">
+                            <p>Time Frame {idx + 1}: {formatTimeframe(tf)}</p>
+                            {tf.meal_start && tf.meal_end && (
+                              <p className="ml-4 text-xs">
+                                Meal ({tf.meal_type}): {tf.meal_start} - {tf.meal_end}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+
+                    <p className="text-sm font-medium text-gray-700 mt-3">
+                      Expected work hours: {calculateExpectedWorkHours(schedule.work_schedule_timeframes)}
+                    </p>
+                  </Card>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Morning Column (6:00-11:59) */}
+          <div className="flex flex-col gap-4">
+            <div className="bg-yellow-500 text-gray-900 p-3 rounded-t-lg text-center font-semibold">
+              Morning (6:00-11:59)
+            </div>
+            <div className="bg-yellow-50 p-4 rounded-b-lg min-h-[200px] space-y-4">
+              {schedulesByPeriod.morning.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center">No morning shifts</p>
+              ) : (
+                schedulesByPeriod.morning.map((schedule) => (
+                  <Card
+                    key={schedule.id}
+                    className="p-4 hover:shadow-md transition-shadow relative flex flex-col bg-white"
+                    onMouseEnter={() => setHoveredScheduleId(schedule.id)}
+                    onMouseLeave={() => setHoveredScheduleId(null)}
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900">
+                          {schedule.shift_id}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Type: {schedule.shift_type}
+                        </p>
+                        {schedule.description && (
+                          <p className="text-sm text-gray-600 mt-1">
+                            {schedule.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {hoveredScheduleId === schedule.id && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditingSchedule(schedule);
+                              setIsDialogOpen(true);
+                            }}
+                          >
+                            <Edit2 className="h-4 w-4 text-blue-500" />
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(schedule.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      {schedule.work_schedule_timeframes
+                        .sort((a, b) => a.frame_order - b.frame_order)
+                        .map((tf, idx) => (
+                          <div key={tf.id} className="text-sm text-gray-600">
+                            <p>Time Frame {idx + 1}: {formatTimeframe(tf)}</p>
+                            {tf.meal_start && tf.meal_end && (
+                              <p className="ml-4 text-xs">
+                                Meal ({tf.meal_type}): {tf.meal_start} - {tf.meal_end}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+
+                    <p className="text-sm font-medium text-gray-700 mt-3">
+                      Expected work hours: {calculateExpectedWorkHours(schedule.work_schedule_timeframes)}
+                    </p>
+                  </Card>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Day Column (12:00-17:59) */}
+          <div className="flex flex-col gap-4">
+            <div className="bg-gray-200 text-gray-900 p-3 rounded-t-lg text-center font-semibold">
+              Day (12:00-17:59)
+            </div>
+            <div className="bg-white p-4 rounded-b-lg min-h-[200px] space-y-4 border">
+              {schedulesByPeriod.day.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center">No day shifts</p>
+              ) : (
+                schedulesByPeriod.day.map((schedule) => (
+                  <Card
+                    key={schedule.id}
+                    className="p-4 hover:shadow-md transition-shadow relative flex flex-col bg-white"
+                    onMouseEnter={() => setHoveredScheduleId(schedule.id)}
+                    onMouseLeave={() => setHoveredScheduleId(null)}
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900">
+                          {schedule.shift_id}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Type: {schedule.shift_type}
+                        </p>
+                        {schedule.description && (
+                          <p className="text-sm text-gray-600 mt-1">
+                            {schedule.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {hoveredScheduleId === schedule.id && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditingSchedule(schedule);
+                              setIsDialogOpen(true);
+                            }}
+                          >
+                            <Edit2 className="h-4 w-4 text-blue-500" />
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(schedule.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      {schedule.work_schedule_timeframes
+                        .sort((a, b) => a.frame_order - b.frame_order)
+                        .map((tf, idx) => (
+                          <div key={tf.id} className="text-sm text-gray-600">
+                            <p>Time Frame {idx + 1}: {formatTimeframe(tf)}</p>
+                            {tf.meal_start && tf.meal_end && (
+                              <p className="ml-4 text-xs">
+                                Meal ({tf.meal_type}): {tf.meal_start} - {tf.meal_end}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+
+                    <p className="text-sm font-medium text-gray-700 mt-3">
+                      Expected work hours: {calculateExpectedWorkHours(schedule.work_schedule_timeframes)}
+                    </p>
+                  </Card>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Evening Column (18:00-23:59) */}
+          <div className="flex flex-col gap-4">
+            <div className="bg-amber-600 text-white p-3 rounded-t-lg text-center font-semibold">
+              Evening (18:00-23:59)
+            </div>
+            <div className="bg-amber-50 p-4 rounded-b-lg min-h-[200px] space-y-4">
+              {schedulesByPeriod.evening.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center">No evening shifts</p>
+              ) : (
+                schedulesByPeriod.evening.map((schedule) => (
+                  <Card
+                    key={schedule.id}
+                    className="p-4 hover:shadow-md transition-shadow relative flex flex-col bg-white"
+                    onMouseEnter={() => setHoveredScheduleId(schedule.id)}
+                    onMouseLeave={() => setHoveredScheduleId(null)}
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900">
+                          {schedule.shift_id}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Type: {schedule.shift_type}
+                        </p>
+                        {schedule.description && (
+                          <p className="text-sm text-gray-600 mt-1">
+                            {schedule.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {hoveredScheduleId === schedule.id && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditingSchedule(schedule);
+                              setIsDialogOpen(true);
+                            }}
+                          >
+                            <Edit2 className="h-4 w-4 text-blue-500" />
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(schedule.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      {schedule.work_schedule_timeframes
+                        .sort((a, b) => a.frame_order - b.frame_order)
+                        .map((tf, idx) => (
+                          <div key={tf.id} className="text-sm text-gray-600">
+                            <p>Time Frame {idx + 1}: {formatTimeframe(tf)}</p>
+                            {tf.meal_start && tf.meal_end && (
+                              <p className="ml-4 text-xs">
+                                Meal ({tf.meal_type}): {tf.meal_start} - {tf.meal_end}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+
+                    <p className="text-sm font-medium text-gray-700 mt-3">
+                      Expected work hours: {calculateExpectedWorkHours(schedule.work_schedule_timeframes)}
+                    </p>
+                  </Card>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
