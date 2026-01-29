@@ -140,6 +140,38 @@ export function WorkScheduleClient() {
     return `${hours}h ${minutes}m`;
   };
 
+  const calculateExpectedWorkHours = (timeframes: Timeframe[]) => {
+    let totalMinutes = 0;
+    let unpaidMealMinutes = 0;
+
+    for (const tf of timeframes) {
+      const [startHour, startMin] = tf.start_time.split(":").map(Number);
+      const [endHour, endMin] = tf.end_time.split(":").map(Number);
+      const startTotalMin = startHour * 60 + startMin;
+      let endTotalMin = endHour * 60 + endMin;
+
+      if (endTotalMin < startTotalMin) {
+        endTotalMin += 24 * 60;
+      }
+
+      totalMinutes += endTotalMin - startTotalMin;
+
+      // Subtract unpaid meal time
+      if (tf.meal_type === "unpaid" && tf.meal_start && tf.meal_end) {
+        const [mealStartHour, mealStartMin] = tf.meal_start.split(":").map(Number);
+        const [mealEndHour, mealEndMin] = tf.meal_end.split(":").map(Number);
+        const mealStartTotalMin = mealStartHour * 60 + mealStartMin;
+        const mealEndTotalMin = mealEndHour * 60 + mealEndMin;
+        unpaidMealMinutes += mealEndTotalMin - mealStartTotalMin;
+      }
+    }
+
+    const netMinutes = Math.max(0, totalMinutes - unpaidMealMinutes);
+    const hours = Math.floor(netMinutes / 60);
+    const minutes = netMinutes % 60;
+    return `${hours}h ${minutes}m`;
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -267,7 +299,7 @@ export function WorkScheduleClient() {
               </div>
 
               <p className="text-sm font-medium text-gray-700 mt-3">
-                Total Hours: {calculateTotalHours(schedule.work_schedule_timeframes)}
+                Expected work hours: {calculateExpectedWorkHours(schedule.work_schedule_timeframes)}
               </p>
             </Card>
           ))}
