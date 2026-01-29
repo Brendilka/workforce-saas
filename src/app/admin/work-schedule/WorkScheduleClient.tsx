@@ -3,7 +3,7 @@
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Plus, Edit2, Trash2 } from "lucide-react";
+import { Plus, Edit2, Trash2, X } from "lucide-react";
 import { useState, useEffect } from "react";
 import {
   Dialog,
@@ -44,6 +44,10 @@ export function WorkScheduleClient() {
   const [hoveredScheduleId, setHoveredScheduleId] = useState<string | null>(
     null
   );
+  const [validationError, setValidationError] = useState<{
+    message: string;
+    affectedPatterns?: Array<{patternName: string; violations: string[]}>;
+  } | null>(null);
 
   // Fetch schedules
   useEffect(() => {
@@ -67,6 +71,7 @@ export function WorkScheduleClient() {
   const handleSubmit = async (formData: any) => {
     try {
       setIsFormLoading(true);
+      setValidationError(null);
       const url = editingSchedule
         ? `/api/admin/work-schedules/${editingSchedule.id}`
         : "/api/admin/work-schedules";
@@ -79,22 +84,29 @@ export function WorkScheduleClient() {
       });
 
       if (!response.ok) {
-        let message = "Failed to save schedule";
-        try {
-          const err = await response.json();
-          if (err?.error) message = err.error;
-        } catch (_) {
-          // ignore parse errors
+        const err = await response.json();
+        if (err?.affectedPatterns) {
+          setValidationError({
+            message: err.error || "Validation error",
+            affectedPatterns: err.affectedPatterns
+          });
+        } else {
+          setValidationError({
+            message: err?.error || "Failed to save schedule"
+          });
         }
-        throw new Error(message);
+        return;
       }
 
       await fetchSchedules();
       setIsDialogOpen(false);
       setEditingSchedule(null);
+      setValidationError(null);
     } catch (error) {
       console.error("Error saving schedule:", error);
-      throw error;
+      setValidationError({
+        message: error instanceof Error ? error.message : "Failed to save schedule"
+      });
     } finally {
       setIsFormLoading(false);
     }
@@ -243,7 +255,7 @@ export function WorkScheduleClient() {
           </Button>
         </DialogTrigger>
         <DialogContent 
-          className="max-w-md max-h-[90vh] overflow-y-auto [&>button.absolute.right-4.top-4]:hidden"
+          className="max-w-2xl max-h-[90vh] overflow-y-auto [&>button.absolute.right-4.top-4]:hidden"
           onInteractOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
         >
@@ -261,6 +273,46 @@ export function WorkScheduleClient() {
               </button>
             </div>
           </DialogHeader>
+          
+          {validationError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+              <div className="flex gap-2">
+                <svg className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-red-800 mb-2">
+                    {validationError.message}
+                  </h3>
+                  {validationError.affectedPatterns && validationError.affectedPatterns.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-red-700 font-medium">Affected Roster Patterns:</p>
+                      <ul className="space-y-2">
+                        {validationError.affectedPatterns.map((pattern, idx) => (
+                          <li key={idx} className="text-sm">
+                            <div className="font-medium text-red-800">{pattern.patternName}</div>
+                            <ul className="mt-1 ml-4 space-y-1">
+                              {pattern.violations.map((violation, vIdx) => (
+                                <li key={vIdx} className="text-red-700 text-xs">• {violation}</li>
+                              ))}
+                            </ul>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setValidationError(null)}
+                  className="text-red-600 hover:text-red-800 flex-shrink-0"
+                  aria-label="Dismiss"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+          
           <WorkScheduleForm
             schedule={editingSchedule || undefined}
             onSubmit={handleSubmit}
@@ -363,10 +415,10 @@ export function WorkScheduleClient() {
 
           {/* Morning Column (6:00-11:59) */}
           <div className="flex flex-col gap-4">
-            <div className="bg-yellow-500 text-gray-900 p-3 rounded-t-lg text-center font-semibold">
+            <div className="bg-yellow-600 text-gray-900 p-3 rounded-t-lg text-center font-semibold">
               Morning (6:00-11:59)
             </div>
-            <div className="bg-yellow-50 p-4 rounded-b-lg min-h-[200px] space-y-4">
+            <div className="bg-yellow-200/70 p-4 rounded-b-lg min-h-[200px] space-y-4">
               {schedulesByPeriod.morning.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center">No morning shifts</p>
               ) : (
@@ -521,10 +573,10 @@ export function WorkScheduleClient() {
 
           {/* Evening Column (18:00-23:59) */}
           <div className="flex flex-col gap-4">
-            <div className="bg-amber-600 text-white p-3 rounded-t-lg text-center font-semibold">
+            <div className="bg-orange-600 text-white p-3 rounded-t-lg text-center font-semibold">
               Evening (18:00-23:59)
             </div>
-            <div className="bg-amber-50 p-4 rounded-b-lg min-h-[200px] space-y-4">
+            <div className="bg-orange-200/70 p-4 rounded-b-lg min-h-[200px] space-y-4">
               {schedulesByPeriod.evening.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center">No evening shifts</p>
               ) : (

@@ -661,245 +661,279 @@ export function WorkScheduleForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-4 max-h-[calc(90vh-180px)] overflow-y-auto pr-2">
       {submitError && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="text-sm">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{submitError}</AlertDescription>
         </Alert>
       )}
 
       {overlapWarning && (
-        <Alert variant="destructive">
+        <Alert className="text-sm bg-yellow-50 border-yellow-200">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{overlapWarning}</AlertDescription>
+          <AlertDescription className="text-yellow-800">{overlapWarning}</AlertDescription>
         </Alert>
       )}
 
-      <div className="space-y-2">
-        <Label htmlFor="shift-id">Shift ID</Label>
-        <Input
-          id="shift-id"
-          value={shiftId}
-          onChange={(e) => setShiftId(e.target.value)}
-          placeholder="e.g., SHIFT001"
-          disabled={isLoading}
-        />
+      {/* Top Row: ID and Type */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor="shift-id" className="text-xs">Shift ID</Label>
+          <Input
+            id="shift-id"
+            value={shiftId}
+            onChange={(e) => setShiftId(e.target.value)}
+            placeholder="e.g., SHIFT001"
+            disabled={isLoading}
+            className="text-sm h-8"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="shift-type" className="text-xs">Shift Type</Label>
+          <Select value={shiftType} onValueChange={setShiftType} disabled={isLoading}>
+            <SelectTrigger id="shift-type" className="text-sm h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Continuous shift">Continuous shift</SelectItem>
+              <SelectItem value="Split shift">Split shift</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="description" className="text-xs">Description</Label>
+          <Input
+            id="description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Optional note"
+            disabled={isLoading}
+            className="text-sm h-8"
+          />
+        </div>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="description">Description (optional)</Label>
-        <Input
-          id="description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Add a short note"
-          disabled={isLoading}
-        />
-      </div>
+      {/* Timeframes Section */}
+      <div className="space-y-2 border-t pt-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">Time Frames</h3>
+          {shiftType === "Split shift" && timeframes.length < 5 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addTimeframe}
+              disabled={isLoading}
+              className="h-7 text-xs gap-1"
+            >
+              <Plus className="h-3 w-3" />
+              Add
+            </Button>
+          )}
+        </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="shift-type">Shift Type</Label>
-        <Select value={shiftType} onValueChange={setShiftType} disabled={isLoading}>
-          <SelectTrigger id="shift-type">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="Continuous shift">Continuous shift</SelectItem>
-            <SelectItem value="Split shift">Split shift</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+        <div className="space-y-2">
+          {timeframes.map((timeframe, index) => (
+            <div key={index} className="bg-gray-50 rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-gray-700">
+                  Frame {index + 1}
+                  {index === 0 && <span className="text-red-500 ml-1">*</span>}
+                </span>
+                {index > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeTimeframe(index)}
+                    disabled={isLoading}
+                    className="h-6 w-6 p-0"
+                  >
+                    <Trash2 className="h-3 w-3 text-red-500" />
+                  </Button>
+                )}
+              </div>
 
-      {/* Timeframes */}
-      <div className="space-y-4">
-        <h3 className="font-semibold">Time Frames</h3>
+              {/* Shift Time Row */}
+              <div className="grid grid-cols-3 gap-2 items-end">
+                <div>
+                  <Label className="text-xs text-gray-600 mb-1 block">Start</Label>
+                  <div className="flex items-center gap-1">
+                    <HourInput
+                      id={`start-hour-${index}`}
+                      value={timeframe.startTime.split(":")[0] || ""}
+                      onChange={(hour) => updateTimeframe(index, "startTimeHour", hour)}
+                      disabled={isLoading}
+                    />
+                    <span className="text-xs font-semibold text-gray-400">:</span>
+                    <MinuteInput
+                      id={`start-min-${index}`}
+                      value={timeframe.startTime.split(":")[1] || ""}
+                      onChange={(min) => updateTimeframe(index, "startTimeMinute", min)}
+                      disabled={isLoading}
+                    />
+                  </div>
+                </div>
 
-        {timeframes.map((timeframe, index) => (
-          <Card key={index} className="p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-medium">
-                Time Frame {index + 1}
-                {index === 0 && <span className="text-gray-500 text-xs ml-2">(Required)</span>}
-              </h4>
-              {index > 0 && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeTimeframe(index)}
-                  disabled={isLoading}
-                >
-                  <Trash2 className="h-4 w-4 text-red-500" />
-                </Button>
+                <div>
+                  <Label className="text-xs text-gray-600 mb-1 block">End</Label>
+                  <div className="flex items-center gap-1">
+                    <HourInput
+                      id={`end-hour-${index}`}
+                      value={timeframe.endTime.split(":")[0] || ""}
+                      onChange={(hour) => updateTimeframe(index, "endTimeHour", hour)}
+                      disabled={isLoading}
+                    />
+                    <span className="text-xs font-semibold text-gray-400">:</span>
+                    <MinuteInput
+                      id={`end-min-${index}`}
+                      value={timeframe.endTime.split(":")[1] || ""}
+                      onChange={(min) => updateTimeframe(index, "endTimeMinute", min)}
+                      disabled={isLoading}
+                    />
+                    {timeframe.endTime && timeframe.startTime &&
+                      parseInt(timeframe.endTime.split(":")[0]) < parseInt(timeframe.startTime.split(":")[0]) && (
+                        <span className="text-xs text-blue-600 font-semibold whitespace-nowrap ml-1">+1d</span>
+                      )
+                    }
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs text-gray-600 mb-1 block">Meal</Label>
+                  <Select 
+                    value={timeframe.mealType} 
+                    onValueChange={(val) => updateTimeframe(index, "mealType", val)}
+                    disabled={isLoading}
+                  >
+                    <SelectTrigger className="text-xs h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="paid">Paid</SelectItem>
+                      <SelectItem value="unpaid">Unpaid</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Meal Time Row - Optional */}
+              {(timeframe.mealStart !== ":" || timeframe.mealEnd !== ":") && (
+                <div className="grid grid-cols-3 gap-2 pt-1 border-t border-gray-200">
+                  <div>
+                    <Label className="text-xs text-gray-600 mb-1 block">Meal Start</Label>
+                    <div className="flex items-center gap-1">
+                      <HourInput
+                        id={`meal-start-hour-${index}`}
+                        value={timeframe.mealStart.split(":")[0] || ""}
+                        onChange={(hour) => updateTimeframe(index, "mealStartHour", hour)}
+                        disabled={isLoading}
+                      />
+                      <span className="text-xs font-semibold text-gray-400">:</span>
+                      <MinuteInput
+                        id={`meal-start-min-${index}`}
+                        value={timeframe.mealStart.split(":")[1] || ""}
+                        onChange={(min) => updateTimeframe(index, "mealStartMinute", min)}
+                        disabled={isLoading}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs text-gray-600 mb-1 block">Meal End</Label>
+                    <div className="flex items-center gap-1">
+                      <HourInput
+                        id={`meal-end-hour-${index}`}
+                        value={timeframe.mealEnd.split(":")[0] || ""}
+                        onChange={(hour) => updateTimeframe(index, "mealEndHour", hour)}
+                        disabled={isLoading}
+                      />
+                      <span className="text-xs font-semibold text-gray-400">:</span>
+                      <MinuteInput
+                        id={`meal-end-min-${index}`}
+                        value={timeframe.mealEnd.split(":")[1] || ""}
+                        onChange={(min) => updateTimeframe(index, "mealEndMinute", min)}
+                        disabled={isLoading}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs text-gray-600 mb-1 block">Hours</Label>
+                    <Input
+                      value={calculateFrameHours(index)}
+                      readOnly
+                      className="text-xs h-8 bg-white"
+                    />
+                  </div>
+                </div>
               )}
-            </div>
 
-            <div className="space-y-3 pt-1">
-              <div className="space-y-2">
-                <Label>Shift Start</Label>
-                <div className="flex items-center gap-2">
-                  <HourInput
-                    id={`start-hour-${index}`}
-                    value={timeframe.startTime.split(":")[0] || ""}
-                    onChange={(hour) => updateTimeframe(index, "startTimeHour", hour)}
-                    disabled={isLoading}
-                  />
-                  <span className="text-xl font-semibold text-gray-400">:</span>
-                  <MinuteInput
-                    id={`start-min-${index}`}
-                    value={timeframe.startTime.split(":")[1] || ""}
-                    onChange={(min) => updateTimeframe(index, "startTimeMinute", min)}
-                    disabled={isLoading}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>
-                  Shift End
-                  {timeframe.startTime && timeframe.endTime && 
-                   parseInt(timeframe.endTime.split(":")[0]) < parseInt(timeframe.startTime.split(":")[0]) && 
-                   <span className="ml-2 inline-block px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded">
-                     +1 day
-                   </span>
-                  }
-                </Label>
-                <div className="flex items-center gap-2">
-                  <HourInput
-                    id={`end-hour-${index}`}
-                    value={timeframe.endTime.split(":")[0] || ""}
-                    onChange={(hour) => updateTimeframe(index, "endTimeHour", hour)}
-                    disabled={isLoading}
-                  />
-                  <span className="text-xl font-semibold text-gray-400">:</span>
-                  <MinuteInput
-                    id={`end-min-${index}`}
-                    value={timeframe.endTime.split(":")[1] || ""}
-                    onChange={(min) => updateTimeframe(index, "endTimeMinute", min)}
-                    disabled={isLoading}
-                  />
-                </div>
-              </div>
-            </div>
-            {timeframeErrors[index] && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{timeframeErrors[index]}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="space-y-3 pt-1">
-              <div className="flex items-center gap-3">
-                <Label htmlFor={`meal-type-${index}`} className="whitespace-nowrap">
-                  Meal
-                </Label>
-                <Select
-                  value={timeframe.mealType}
-                  onValueChange={(val) => updateTimeframe(index, "mealType", val)}
-                  disabled={isLoading}
+              {/* Show meal input option if no meals yet */}
+              {timeframe.mealStart === ":" && timeframe.mealEnd === ":" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateTimeframe(index, "mealStart", ":");
+                    updateTimeframe(index, "mealEnd", ":");
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-700 py-1 font-medium"
                 >
-                  <SelectTrigger id={`meal-type-${index}`} className="w-44">
-                    <SelectValue placeholder="Select meal type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="paid">Paid</SelectItem>
-                    <SelectItem value="unpaid">Unpaid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                  + Add Meal Time
+                </button>
+              )}
 
-              <div className="space-y-3 pt-1">
-                <div className="space-y-2">
-                  <Label>Shift Meal Start</Label>
-                  <div className="flex items-center gap-2">
-                    <HourInput
-                      id={`meal-start-hour-${index}`}
-                      value={timeframe.mealStart.split(":")[0] || ""}
-                      onChange={(hour) => updateTimeframe(index, "mealStartHour", hour)}
-                      disabled={isLoading}
-                    />
-                    <span className="text-xl font-semibold text-gray-400">:</span>
-                    <MinuteInput
-                      id={`meal-start-min-${index}`}
-                      value={timeframe.mealStart.split(":")[1] || ""}
-                      onChange={(min) => updateTimeframe(index, "mealStartMinute", min)}
-                      disabled={isLoading}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Shift Meal End</Label>
-                  <div className="flex items-center gap-2">
-                    <HourInput
-                      id={`meal-end-hour-${index}`}
-                      value={timeframe.mealEnd.split(":")[0] || ""}
-                      onChange={(hour) => updateTimeframe(index, "mealEndHour", hour)}
-                      disabled={isLoading}
-                    />
-                    <span className="text-xl font-semibold text-gray-400">:</span>
-                    <MinuteInput
-                      id={`meal-end-min-${index}`}
-                      value={timeframe.mealEnd.split(":")[1] || ""}
-                      onChange={(min) => updateTimeframe(index, "mealEndMinute", min)}
-                      disabled={isLoading}
-                    />
-                  </div>
-                </div>
-              </div>
+              {/* Error Messages */}
+              {timeframeErrors[index] && (
+                <Alert variant="destructive" className="text-xs py-1 px-2 mt-1">
+                  <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                  <AlertDescription className="text-xs ml-1">{timeframeErrors[index]}</AlertDescription>
+                </Alert>
+              )}
 
               {mealErrors[index] && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{mealErrors[index]}</AlertDescription>
+                <Alert variant="destructive" className="text-xs py-1 px-2 mt-1">
+                  <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                  <AlertDescription className="text-xs ml-1">{mealErrors[index]}</AlertDescription>
                 </Alert>
               )}
             </div>
-          </Card>
-        ))}
-
-        {shiftType === "Split shift" && timeframes.length < 5 && (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={addTimeframe}
-            disabled={isLoading}
-            className="w-full gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Add Timeframe (Split Shift)
-          </Button>
-        )}
+          ))}
+        </div>
 
         {timeframes.length >= 5 && (
-          <p className="text-sm text-gray-500">Maximum 5 timeframes reached</p>
+          <p className="text-xs text-gray-500 py-1">Maximum 5 timeframes reached</p>
         )}
       </div>
 
-      {/* Shift Hours */}
-      <div className="space-y-2">
-        <Label htmlFor="shift-hours">Total Shift Hours</Label>
-        <Input
-          id="shift-hours"
-          value={calculateShiftHours()}
-          readOnly
-          className="bg-gray-50"
-        />
+      {/* Summary Section */}
+      <div className="grid grid-cols-2 gap-3 border-t pt-3">
+        <div className="space-y-2">
+          <Label htmlFor="shift-hours" className="text-xs">Total Shift Hours</Label>
+          <Input
+            id="shift-hours"
+            value={calculateShiftHours()}
+            readOnly
+            className="text-sm h-8 bg-gray-50"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="expected-hours" className="text-xs">Expected Work Hours</Label>
+          <Input
+            id="expected-hours"
+            value={calculateExpectedWorkHours()}
+            readOnly
+            className="text-sm h-8 bg-gray-50"
+          />
+        </div>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="expected-hours">Expected Work Hours</Label>
-        <Input
-          id="expected-hours"
-          value={calculateExpectedWorkHours()}
-          readOnly
-          className="bg-gray-50"
-        />
-      </div>
-
-      <div className="flex gap-3 pt-4">
-        <Button type="submit" disabled={isLoading} className="flex-1">
+      <div className="flex gap-3 pt-3">
+        <Button type="submit" disabled={isLoading} className="w-full">
           {isLoading ? "Saving..." : "Save Schedule"}
         </Button>
       </div>

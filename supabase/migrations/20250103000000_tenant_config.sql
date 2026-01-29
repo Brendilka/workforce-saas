@@ -65,14 +65,14 @@ CREATE POLICY "Users can view config for their tenant"
     ON public.tenant_config
     FOR SELECT
     TO authenticated
-    USING (tenant_id::text = auth.jwt() ->> 'tenant_id');
+    USING (tenant_id::text = auth.jwt() -> 'user_metadata' ->> 'tenant_id');
 
 CREATE POLICY "Admins can manage config for their tenant"
     ON public.tenant_config
     FOR ALL
     TO authenticated
     USING (
-        tenant_id::text = auth.jwt() ->> 'tenant_id'
+        tenant_id::text = auth.jwt() -> 'user_metadata' ->> 'tenant_id'
         AND EXISTS (
             SELECT 1 FROM public.users
             WHERE users.id = auth.uid()
@@ -80,7 +80,7 @@ CREATE POLICY "Admins can manage config for their tenant"
         )
     )
     WITH CHECK (
-        tenant_id::text = auth.jwt() ->> 'tenant_id'
+        tenant_id::text = auth.jwt() -> 'user_metadata' ->> 'tenant_id'
         AND EXISTS (
             SELECT 1 FROM public.users
             WHERE users.id = auth.uid()

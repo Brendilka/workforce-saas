@@ -1,11 +1,4 @@
 -- Work Schedules (custom shift definitions)
--- Drop and recreate policies if they exist
-DROP POLICY IF EXISTS "Service role can manage all work_schedules" ON public.work_schedules;
-DROP POLICY IF EXISTS "Users can view work_schedules in their tenant" ON public.work_schedules;
-DROP POLICY IF EXISTS "Admins can manage work_schedules in their tenant" ON public.work_schedules;
-DROP POLICY IF EXISTS "Admins can insert work_schedules in their tenant" ON public.work_schedules;
-DROP POLICY IF EXISTS "Admins can update work_schedules in their tenant" ON public.work_schedules;
-DROP POLICY IF EXISTS "Admins can delete work_schedules in their tenant" ON public.work_schedules;
 
 CREATE TABLE IF NOT EXISTS public.work_schedules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -26,6 +19,14 @@ CREATE TRIGGER work_schedules_updated_at
   EXECUTE FUNCTION public.handle_updated_at();
 
 ALTER TABLE public.work_schedules ENABLE ROW LEVEL SECURITY;
+
+-- Drop and recreate policies if they exist
+DROP POLICY IF EXISTS "Service role can manage all work_schedules" ON public.work_schedules;
+DROP POLICY IF EXISTS "Users can view work_schedules in their tenant" ON public.work_schedules;
+DROP POLICY IF EXISTS "Admins can manage work_schedules in their tenant" ON public.work_schedules;
+DROP POLICY IF EXISTS "Admins can insert work_schedules in their tenant" ON public.work_schedules;
+DROP POLICY IF EXISTS "Admins can update work_schedules in their tenant" ON public.work_schedules;
+DROP POLICY IF EXISTS "Admins can delete work_schedules in their tenant" ON public.work_schedules;
 
 CREATE POLICY "Service role can manage all work_schedules"
   ON public.work_schedules
@@ -70,13 +71,6 @@ CREATE POLICY "Admins can delete work_schedules in their tenant"
   ));
 
 -- Work Schedule Timeframes (for Continuous and Split shifts)
--- Drop existing policies
-DROP POLICY IF EXISTS "Service role can manage all work_schedule_timeframes" ON public.work_schedule_timeframes;
-DROP POLICY IF EXISTS "Users can view work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
-DROP POLICY IF EXISTS "Admins can manage work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
-DROP POLICY IF EXISTS "Admins can insert work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
-DROP POLICY IF EXISTS "Admins can update work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
-DROP POLICY IF EXISTS "Admins can delete work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
 
 CREATE TABLE IF NOT EXISTS public.work_schedule_timeframes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -98,6 +92,14 @@ CREATE TRIGGER work_schedule_timeframes_updated_at
   EXECUTE FUNCTION public.handle_updated_at();
 
 ALTER TABLE public.work_schedule_timeframes ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Service role can manage all work_schedule_timeframes" ON public.work_schedule_timeframes;
+DROP POLICY IF EXISTS "Users can view work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
+DROP POLICY IF EXISTS "Admins can manage work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
+DROP POLICY IF EXISTS "Admins can insert work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
+DROP POLICY IF EXISTS "Admins can update work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
+DROP POLICY IF EXISTS "Admins can delete work_schedule_timeframes in their tenant" ON public.work_schedule_timeframes;
 
 CREATE POLICY "Service role can manage all work_schedule_timeframes"
   ON public.work_schedule_timeframes
