@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BDK Time and Attendance",
+  title: "ALBUS Time and Attendance System",
   description: "Workforce scheduling and attendance management system",
 };
 
