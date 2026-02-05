@@ -621,25 +621,34 @@ export type Database = {
       tenant_config: {
         Row: {
           created_at: string
+          day_periods: Json | null
           field_visibility_config: Json | null
           hr_import_config: Json | null
           id: string
+          min_hours_between_shifts: number | null
+          shift_types: Json | null
           tenant_id: string
           updated_at: string
         }
         Insert: {
           created_at?: string
+          day_periods?: Json | null
           field_visibility_config?: Json | null
           hr_import_config?: Json | null
           id?: string
+          min_hours_between_shifts?: number | null
+          shift_types?: Json | null
           tenant_id: string
           updated_at?: string
         }
         Update: {
           created_at?: string
+          day_periods?: Json | null
           field_visibility_config?: Json | null
           hr_import_config?: Json | null
           id?: string
+          min_hours_between_shifts?: number | null
+          shift_types?: Json | null
           tenant_id?: string
           updated_at?: string
         }

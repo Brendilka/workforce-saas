@@ -59,11 +59,27 @@ export interface Profile {
   updated_at: string;
 }
 
+export interface ShiftTypeOption {
+  id: string;
+  label: string;
+}
+
+/** One period in the 24h day (e.g. Night 0:00-6:00). startMinutes/endMinutes in 0-1440. */
+export interface DayPeriodConfig {
+  id: string;
+  label: string;
+  startMinutes: number;
+  endMinutes: number;
+}
+
 export interface TenantConfig {
   id: string;
   tenant_id: string;
   hr_import_config: HRImportConfig | null;
   field_visibility_config: FieldVisibilityConfig | null;
+  min_hours_between_shifts: number | null;
+  shift_types: ShiftTypeOption[] | null;
+  day_periods: DayPeriodConfig[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -161,6 +177,9 @@ export interface Database {
           tenant_id?: string;
           hr_import_config?: HRImportConfig | null;
           field_visibility_config?: FieldVisibilityConfig | null;
+          min_hours_between_shifts?: number | null;
+          shift_types?: ShiftTypeOption[] | null;
+          day_periods?: DayPeriodConfig[] | null;
         };
       };
       import_jobs: {
