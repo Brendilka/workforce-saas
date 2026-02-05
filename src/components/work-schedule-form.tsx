@@ -14,6 +14,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Plus, Trash2, AlertCircle } from "lucide-react";
+import type { ShiftTypeOption } from "@/lib/types/database";
 
 // Parse hour input: accepts "0-23", "9p", "9pm", "8a", "8am"
 // Returns hour in 24h format (00-23) as string, or empty if invalid
@@ -328,6 +329,11 @@ interface Timeframe {
   mealEnd: string;
 }
 
+const DEFAULT_SHIFT_TYPE_OPTIONS: ShiftTypeOption[] = [
+  { id: "continuous", label: "Continuous shift" },
+  { id: "split", label: "Split shift" },
+];
+
 interface WorkScheduleFormProps {
   schedule?: {
     id: string;
@@ -344,18 +350,24 @@ interface WorkScheduleFormProps {
       meal_end?: string | null;
     }>;
   };
+  /** Configurable shift types from Settings; if not provided, uses Continuous shift / Split shift */
+  shiftTypes?: ShiftTypeOption[] | null;
   onSubmit: (data: any) => Promise<void>;
   isLoading?: boolean;
+  hideSubmitButton?: boolean;
 }
 
 export function WorkScheduleForm({
   schedule,
+  shiftTypes: shiftTypesProp,
   onSubmit,
   isLoading = false,
+  hideSubmitButton = false,
 }: WorkScheduleFormProps) {
+  const shiftTypeOptions = (shiftTypesProp?.length ? shiftTypesProp : DEFAULT_SHIFT_TYPE_OPTIONS) as ShiftTypeOption[];
   const [shiftId, setShiftId] = useState(schedule?.shift_id || "");
   const [shiftType, setShiftType] = useState(
-    schedule?.shift_type || "Continuous shift"
+    schedule?.shift_type || shiftTypeOptions[0]?.label || "Continuous shift"
   );
   const [description, setDescription] = useState(schedule?.description || "");
   const [timeframes, setTimeframes] = useState<Timeframe[]>(
@@ -705,12 +717,15 @@ export function WorkScheduleForm({
         <div className="space-y-2">
           <Label htmlFor="shift-type" className="text-xs">Shift Type</Label>
           <Select value={shiftType} onValueChange={setShiftType} disabled={isLoading}>
-            <SelectTrigger id="shift-type" className="text-sm h-8">
+            <SelectTrigger id="shift-type" className="text-sm h-8 bg-white">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="Continuous shift">Continuous shift</SelectItem>
-              <SelectItem value="Split shift">Split shift</SelectItem>
+              {shiftTypeOptions.map((opt) => (
+                <SelectItem key={opt.id} value={opt.label}>
+                  {opt.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -815,20 +830,30 @@ export function WorkScheduleForm({
                 </div>
 
                 <div>
-                  <Label className="text-xs text-gray-600 mb-1 block">Meal</Label>
-                  <Select 
-                    value={timeframe.mealType} 
-                    onValueChange={(val) => updateTimeframe(index, "mealType", val)}
-                    disabled={isLoading}
-                  >
-                    <SelectTrigger className="text-xs h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="paid">Paid</SelectItem>
-                      <SelectItem value="unpaid">Unpaid</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs text-gray-600 mb-1 block">
+                    {(timeframe.mealStart !== ":" || timeframe.mealEnd !== ":") ? "Hours" : "Meal"}
+                  </Label>
+                  {(timeframe.mealStart !== ":" || timeframe.mealEnd !== ":") ? (
+                    <Input
+                      value={calculateFrameHours(index)}
+                      readOnly
+                      className="text-xs h-8 bg-gray-100 cursor-default border-gray-200 text-gray-700"
+                    />
+                  ) : (
+                    <Select 
+                      value={timeframe.mealType} 
+                      onValueChange={(val) => updateTimeframe(index, "mealType", val)}
+                      disabled={isLoading}
+                    >
+                      <SelectTrigger className="text-xs h-8 bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="paid">Paid</SelectItem>
+                        <SelectItem value="unpaid">Unpaid</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               </div>
 
@@ -874,12 +899,20 @@ export function WorkScheduleForm({
                   </div>
 
                   <div>
-                    <Label className="text-xs text-gray-600 mb-1 block">Hours</Label>
-                    <Input
-                      value={calculateFrameHours(index)}
-                      readOnly
-                      className="text-xs h-8 bg-white"
-                    />
+                    <Label className="text-xs text-gray-600 mb-1 block">Meal</Label>
+                    <Select 
+                      value={timeframe.mealType} 
+                      onValueChange={(val) => updateTimeframe(index, "mealType", val)}
+                      disabled={isLoading}
+                    >
+                      <SelectTrigger className="text-xs h-8 bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="paid">Paid</SelectItem>
+                        <SelectItem value="unpaid">Unpaid</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               )}
@@ -929,7 +962,7 @@ export function WorkScheduleForm({
             id="shift-hours"
             value={calculateShiftHours()}
             readOnly
-            className="text-sm h-8 bg-gray-50"
+            className="text-sm h-8 bg-gray-100 cursor-default border-gray-200 text-gray-700"
           />
         </div>
 
@@ -939,16 +972,18 @@ export function WorkScheduleForm({
             id="expected-hours"
             value={calculateExpectedWorkHours()}
             readOnly
-            className="text-sm h-8 bg-gray-50"
+            className="text-sm h-8 bg-gray-100 cursor-default border-gray-200 text-gray-700"
           />
         </div>
       </div>
 
-      <div className="flex gap-3 pt-3">
-        <Button type="submit" disabled={isLoading} className="w-full">
-          {isLoading ? "Saving..." : "Save Schedule"}
-        </Button>
-      </div>
+      {!hideSubmitButton && (
+        <div className="flex gap-3 pt-3">
+          <Button type="submit" disabled={isLoading} className="w-full">
+            {isLoading ? "Saving..." : "Save Schedule"}
+          </Button>
+        </div>
+      )}
     </form>
   );
 }

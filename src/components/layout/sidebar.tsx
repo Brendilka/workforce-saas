@@ -84,11 +84,14 @@ const adminNavItems = [
   },
 ];
 
-const helpNavItems = [
+const HELP_SUPPORT_URL = "https://onmanylevels.atlassian.net/servicedesk/customer/portal/235";
+
+const helpNavItems: Array<{ title: string; href: string; icon: typeof HelpCircle; external?: boolean }> = [
   {
     title: "Help & Support",
-    href: "/help",
+    href: HELP_SUPPORT_URL,
     icon: HelpCircle,
+    external: true,
   },
   {
     title: "Settings",
@@ -188,20 +191,37 @@ export function Sidebar({ userRole, userName, userInitials }: SidebarProps) {
         {/* Help Section */}
         {helpNavItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href;
+          const isActive = !item.external && pathname === item.href;
+          const className = cn(
+            "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+            isActive
+              ? "bg-employee text-white"
+              : "text-gray-700 hover:bg-gray-100",
+            isCollapsed && "justify-center px-2"
+          );
+
+          if (item.external) {
+            return (
+              <a
+                key={item.href}
+                href={item.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setIsMobileOpen(false)}
+                className={className}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                {!isCollapsed && <span>{item.title}</span>}
+              </a>
+            );
+          }
 
           return (
             <Link
               key={item.href}
               href={item.href}
               onClick={() => setIsMobileOpen(false)}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-employee text-white"
-                  : "text-gray-700 hover:bg-gray-100",
-                isCollapsed && "justify-center px-2"
-              )}
+              className={className}
             >
               <Icon className="h-5 w-5 shrink-0" />
               {!isCollapsed && <span>{item.title}</span>}
