@@ -134,13 +134,13 @@ export function SettingsClient() {
         throw new Error("Unable to determine tenant. Please log in again.");
       }
 
-      const payload: Record<string, unknown> = {
+      const payload = {
         tenant_id: tenantId,
         min_hours_between_shifts: minHoursBetweenShifts,
         day_periods: JSON.parse(JSON.stringify(dayPeriods)),
       };
 
-      const { error } = await supabase.from("tenant_config").upsert(payload, {
+      const { error } = await supabase.from("tenant_config").upsert(payload as any, {
         onConflict: "tenant_id",
       });
 
