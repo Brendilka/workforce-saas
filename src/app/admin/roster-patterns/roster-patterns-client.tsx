@@ -906,18 +906,7 @@ export function RosterPatternsClient() {
   };
 
   const sortSchedules = (schedules: WorkSchedule[]): WorkSchedule[] => {
-    const periods = getActiveDayPeriods();
-    const order = new Map(periods.map((p, idx) => [p.id, idx]));
-
     return [...schedules].sort((a, b) => {
-      const aSplit = isSplitShift(a);
-      const bSplit = isSplitShift(b);
-      if (aSplit !== bSplit) return aSplit ? 1 : -1;
-
-      const aPeriod = order.get(getShiftPeriodId(a.work_schedule_timeframes || [])) ?? Number.MAX_SAFE_INTEGER;
-      const bPeriod = order.get(getShiftPeriodId(b.work_schedule_timeframes || [])) ?? Number.MAX_SAFE_INTEGER;
-      if (aPeriod !== bPeriod) return aPeriod - bPeriod;
-
       const aFrames = a.work_schedule_timeframes?.slice().sort((x, y) => x.frame_order - y.frame_order) || [];
       const bFrames = b.work_schedule_timeframes?.slice().sort((x, y) => x.frame_order - y.frame_order) || [];
       const aFirst = aFrames[0];
@@ -979,10 +968,13 @@ export function RosterPatternsClient() {
   };
 
   const getShiftTileClasses = (schedule: WorkSchedule) => {
+    if (isSplitShift(schedule)) {
+      return "bg-black text-white border-black";
+    }
     const periods = getActiveDayPeriods();
     const periodId = getShiftPeriodId(schedule.work_schedule_timeframes || []);
     const periodIndex = Math.max(0, periods.findIndex((p) => p.id === periodId));
-    const colorIndex = periodIndex % periodColors.length;
+    const colorIndex = periodIndex % periodBgLight.length;
     return `${periodBgLight[colorIndex]} ${periodBorders[colorIndex]}`;
   };
 
@@ -1615,11 +1607,26 @@ export function RosterPatternsClient() {
   };
 
   const getFilteredSchedules = () => {
-    const baseSchedules = scheduleFilter === "all"
-      ? workSchedules
-      : workSchedules.filter((schedule) => getShiftPeriod(schedule) === scheduleFilter);
+    const periods = getActiveDayPeriods();
+    const nonSplitSchedules = workSchedules.filter((s) => !isSplitShift(s));
+    const schedulesByPeriodId: Record<string, WorkSchedule[]> = {};
+    periods.forEach((p) => {
+      schedulesByPeriodId[p.id] = sortSchedules(
+        nonSplitSchedules.filter((s) => getShiftPeriodId(s.work_schedule_timeframes || []) === p.id)
+      );
+    });
+    const splitShiftsList = sortSchedules(workSchedules.filter(isSplitShift));
 
-    return sortSchedules(baseSchedules);
+    if (scheduleFilter === "all") {
+      const ordered = periods.flatMap((p) => schedulesByPeriodId[p.id] || []);
+      return [...ordered, ...splitShiftsList];
+    }
+
+    if (scheduleFilter === "split") {
+      return splitShiftsList;
+    }
+
+    return schedulesByPeriodId[scheduleFilter] || [];
   };
 
   const filteredSchedules = getFilteredSchedules();
@@ -2468,6 +2475,7 @@ export function RosterPatternsClient() {
               <p className="text-sm text-gray-500">No schedules match this filter.</p>
             ) : (
               filteredSchedules.map((schedule) => {
+                const isSplit = isSplitShift(schedule);
                 const timeframes = schedule.work_schedule_timeframes?.sort(
                   (a, b) => a.frame_order - b.frame_order
                 ) || [];
@@ -2511,25 +2519,27 @@ export function RosterPatternsClient() {
                     }}
                     className={`p-4 cursor-move transition-colors border ${getShiftTileClasses(schedule)}`}
                   >
-                    <div className="font-bold text-base mb-2">{schedule.shift_id}</div>
-                    <div className="text-sm text-gray-600 mb-2">
+                    <div className={`font-bold text-base mb-2 ${isSplit ? "text-white" : "text-gray-900"}`}>
+                      {schedule.shift_id}
+                    </div>
+                    <div className={`text-sm mb-2 ${isSplit ? "text-white/80" : "text-gray-600"}`}>
                       Type: {schedule.shift_type}
                     </div>
                     
                     {timeframes.map((tf, idx) => (
-                      <div key={idx} className="text-sm mb-2">
-                        <div className="font-medium">
+                      <div key={idx} className={`text-sm mb-2 ${isSplit ? "text-white/90" : "text-gray-700"}`}>
+                        <div className={`font-medium ${isSplit ? "text-white" : "text-gray-900"}`}>
                           Time Frame {idx + 1}: {tf.start_time.slice(0, 5)} - {tf.end_time.slice(0, 5)}
                         </div>
                         {tf.meal_start && tf.meal_end && (
-                          <div className="text-xs text-gray-600 ml-2">
+                          <div className={`text-xs ml-2 ${isSplit ? "text-white/70" : "text-gray-600"}`}>
                             Meal ({tf.meal_type || 'paid'}): {tf.meal_start.slice(0, 5)} - {tf.meal_end.slice(0, 5)}
                           </div>
                         )}
                       </div>
                     ))}
                     
-                    <div className="font-semibold text-sm mt-2 pt-2 border-t">
+                    <div className={`font-semibold text-sm mt-2 pt-2 border-t ${isSplit ? "border-white/30 text-white" : "border-gray-200 text-gray-800"}`}>
                       Total Hours: {calculateTotalHours()}
                     </div>
                   </Card>
