@@ -17,6 +17,7 @@ import {
 import { Calendar as CalendarIcon, Plus, Trash2, Minus, Info, Copy } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Json } from "@/types/supabase";
+import type { ShiftTypeOption, DayPeriodConfig } from "@/lib/types/database";
 
 interface TimeFrame {
   start_time: string;
@@ -60,6 +61,13 @@ interface SavedPattern {
   created_at?: string;
 }
 
+const DEFAULT_DAY_PERIODS: DayPeriodConfig[] = [
+  { id: "night", label: "Night", startMinutes: 0, endMinutes: 360 },
+  { id: "morning", label: "Morning", startMinutes: 360, endMinutes: 720 },
+  { id: "day", label: "Day", startMinutes: 720, endMinutes: 1080 },
+  { id: "evening", label: "Evening", startMinutes: 1080, endMinutes: 1440 },
+];
+
 export function RosterPatternsClient() {
   const [showForm, setShowForm] = useState(false);
   const [workSchedules, setWorkSchedules] = useState<WorkSchedule[]>([]);
@@ -101,7 +109,7 @@ export function RosterPatternsClient() {
   const [saving, setSaving] = useState(false);
   const [editingPatternId, setEditingPatternId] = useState<string | null>(null);
   const [overlapError, setOverlapError] = useState<{message: string, timeout?: NodeJS.Timeout} | null>(null);
-  const [scheduleFilter, setScheduleFilter] = useState<"all" | "night" | "morning" | "day" | "evening">("all");
+  const [scheduleFilter, setScheduleFilter] = useState<string>("all");
   const [copiedSchedules, setCopiedSchedules] = useState<WorkSchedule[] | null>(null);
   const [isCopyDialogOpen, setIsCopyDialogOpen] = useState(false);
   const [copySourcePattern, setCopySourcePattern] = useState<SavedPattern | null>(null);
@@ -112,6 +120,8 @@ export function RosterPatternsClient() {
   const [navigationPending, setNavigationPending] = useState(false);
   const [draggedRowId, setDraggedRowId] = useState<string | null>(null);
   const [weeksReductionDialog, setWeeksReductionDialog] = useState<{show: boolean, targetWeeks: number, nonEmptyWeeks: number[]}>({show: false, targetWeeks: 0, nonEmptyWeeks: []});
+  const [dayPeriods, setDayPeriods] = useState<DayPeriodConfig[]>([]);
+  const [shiftTypes, setShiftTypes] = useState<ShiftTypeOption[] | null>(null);
 
   const supabase = createClient();
 
@@ -119,7 +129,7 @@ export function RosterPatternsClient() {
     console.log("Component mounted, loading work schedules...");
     loadWorkSchedules();
     loadSavedPatterns();
-    loadMinHoursBetweenShifts();
+    loadTenantConfig();
   }, []);
 
   useEffect(() => {
@@ -291,27 +301,47 @@ export function RosterPatternsClient() {
     }
   };
 
-  const loadMinHoursBetweenShifts = async () => {
+  const loadTenantConfig = async () => {
     try {
       const { data: user } = await supabase.auth.getUser();
       if (!user?.user) return;
 
       const { data, error } = await supabase
         .from('tenant_config')
-        .select('min_hours_between_shifts')
+        .select('min_hours_between_shifts, day_periods, shift_types')
         .eq('tenant_id', user.user.user_metadata?.tenant_id)
         .single();
 
       if (error) throw error;
       if (data) {
-        const minHours = (data as unknown as {min_hours_between_shifts: number | null}).min_hours_between_shifts;
-        if (minHours !== null) {
-          setMinHoursBetweenShifts(minHours);
+        const row = data as unknown as {
+          min_hours_between_shifts: number | null;
+          day_periods: DayPeriodConfig[] | null;
+          shift_types: ShiftTypeOption[] | null;
+        };
+
+        if (row.min_hours_between_shifts != null) {
+          setMinHoursBetweenShifts(row.min_hours_between_shifts);
+        }
+
+        if (Array.isArray(row.day_periods) && row.day_periods.length > 0) {
+          const sorted = [...row.day_periods].sort((a, b) => a.startMinutes - b.startMinutes);
+          setDayPeriods(sorted);
+        } else {
+          setDayPeriods(DEFAULT_DAY_PERIODS);
+        }
+
+        if (Array.isArray(row.shift_types) && row.shift_types.length > 0) {
+          setShiftTypes(row.shift_types);
+        } else {
+          setShiftTypes(null);
         }
       }
     } catch (error) {
-      console.error('Error loading min hours between shifts:', error);
-      setMinHoursBetweenShifts(8); // Default value
+      console.error('Error loading tenant config:', error);
+      setMinHoursBetweenShifts(8);
+      setDayPeriods(DEFAULT_DAY_PERIODS);
+      setShiftTypes(null);
     }
   };
 
@@ -849,60 +879,111 @@ export function RosterPatternsClient() {
     return hours * 60 + minutes;
   };
 
-  const getShiftPeriod = (schedule: WorkSchedule) => {
-    const timeframes = schedule.work_schedule_timeframes?.slice().sort(
-      (a, b) => a.frame_order - b.frame_order
-    ) || [];
-    const firstTimeframe = timeframes[0];
-    if (!firstTimeframe?.start_time) return "day" as const;
-    const [hour] = firstTimeframe.start_time.split(':').map(Number);
-
-    if (hour >= 0 && hour < 6) return "night" as const;
-    if (hour >= 6 && hour < 12) return "morning" as const;
-    if (hour >= 12 && hour < 18) return "day" as const;
-    return "evening" as const;
+  const minutesFromMidnight = (time: string): number => {
+    const [hours, minutes] = time.split(':').map(Number);
+    return (hours * 60) + minutes;
   };
 
-  const getShiftTileClasses = (schedule: WorkSchedule) => {
-    const period = getShiftPeriod(schedule);
-
-    switch (period) {
-      case "night":
-        return "bg-blue-900/10 border-blue-200";
-      case "morning":
-        return "bg-yellow-200/70 border-yellow-300";
-      case "day":
-        return "bg-white border-gray-200";
-      case "evening":
-        return "bg-orange-200/70 border-orange-300";
-      default:
-        return "bg-white border-gray-200";
+  const getActiveDayPeriods = (): DayPeriodConfig[] => {
+    if (dayPeriods.length > 0) {
+      return [...dayPeriods].sort((a, b) => a.startMinutes - b.startMinutes);
     }
+    return [...DEFAULT_DAY_PERIODS];
   };
 
-  const sortSchedulesByStartTime = (items: WorkSchedule[]) => {
-    return [...items].sort((a, b) => {
-      const aTimeframes = a.work_schedule_timeframes?.slice().sort(
-        (x, y) => x.frame_order - y.frame_order
-      ) || [];
-      const bTimeframes = b.work_schedule_timeframes?.slice().sort(
-        (x, y) => x.frame_order - y.frame_order
-      ) || [];
+  const getShiftPeriodId = (timeframes: TimeFrame[]): string => {
+    const periods = getActiveDayPeriods();
+    if (timeframes.length === 0 || periods.length === 0) return periods[0]?.id ?? "day";
+    const first = timeframes.slice().sort((a, b) => a.frame_order - b.frame_order)[0];
+    const startMins = minutesFromMidnight(first.start_time);
+    const period = periods.find((p) => startMins >= p.startMinutes && startMins < p.endMinutes);
+    return period?.id ?? periods[0].id;
+  };
 
-      const aFirst = aTimeframes[0];
-      const bFirst = bTimeframes[0];
+  const isSplitShift = (s: WorkSchedule): boolean => {
+    const splitLabel = (shiftTypes?.find((t) => t.id === "split")?.label ?? "Split shift").trim();
+    return (s.shift_type ?? "").trim() === splitLabel;
+  };
+
+  const sortSchedules = (schedules: WorkSchedule[]): WorkSchedule[] => {
+    const periods = getActiveDayPeriods();
+    const order = new Map(periods.map((p, idx) => [p.id, idx]));
+
+    return [...schedules].sort((a, b) => {
+      const aSplit = isSplitShift(a);
+      const bSplit = isSplitShift(b);
+      if (aSplit !== bSplit) return aSplit ? 1 : -1;
+
+      const aPeriod = order.get(getShiftPeriodId(a.work_schedule_timeframes || [])) ?? Number.MAX_SAFE_INTEGER;
+      const bPeriod = order.get(getShiftPeriodId(b.work_schedule_timeframes || [])) ?? Number.MAX_SAFE_INTEGER;
+      if (aPeriod !== bPeriod) return aPeriod - bPeriod;
+
+      const aFrames = a.work_schedule_timeframes?.slice().sort((x, y) => x.frame_order - y.frame_order) || [];
+      const bFrames = b.work_schedule_timeframes?.slice().sort((x, y) => x.frame_order - y.frame_order) || [];
+      const aFirst = aFrames[0];
+      const bFirst = bFrames[0];
 
       if (!aFirst || !bFirst) return 0;
 
-      const aStart = timeToMinutes(aFirst.start_time);
-      const bStart = timeToMinutes(bFirst.start_time);
-
+      const aStart = minutesFromMidnight(aFirst.start_time);
+      const bStart = minutesFromMidnight(bFirst.start_time);
       if (aStart !== bStart) return aStart - bStart;
 
-      const aEnd = timeToMinutes(aFirst.end_time);
-      const bEnd = timeToMinutes(bFirst.end_time);
+      const aEnd = minutesFromMidnight(aFirst.end_time);
+      const bEnd = minutesFromMidnight(bFirst.end_time);
       return aEnd - bEnd;
     });
+  };
+
+  const periodColors: string[] = [
+    "bg-blue-900",
+    "bg-yellow-600",
+    "bg-gray-300",
+    "bg-orange-600",
+    "bg-violet-600",
+    "bg-emerald-600",
+    "bg-rose-500",
+    "bg-cyan-600",
+    "bg-amber-500",
+    "bg-slate-500",
+  ];
+
+  const periodBgLight: string[] = [
+    "bg-blue-900/10",
+    "bg-yellow-200/70",
+    "bg-white",
+    "bg-orange-200/70",
+    "bg-violet-100",
+    "bg-emerald-100",
+    "bg-rose-100",
+    "bg-cyan-100",
+    "bg-amber-100",
+    "bg-slate-100",
+  ];
+
+  const periodBorders: string[] = [
+    "border-blue-200",
+    "border-yellow-300",
+    "border-gray-200",
+    "border-orange-300",
+    "border-violet-200",
+    "border-emerald-200",
+    "border-rose-200",
+    "border-cyan-200",
+    "border-amber-200",
+    "border-slate-200",
+  ];
+
+  const getShiftPeriod = (schedule: WorkSchedule) => {
+    return getShiftPeriodId(schedule.work_schedule_timeframes || []);
+  };
+
+  const getShiftTileClasses = (schedule: WorkSchedule) => {
+    const periods = getActiveDayPeriods();
+    const periodId = getShiftPeriodId(schedule.work_schedule_timeframes || []);
+    const periodIndex = Math.max(0, periods.findIndex((p) => p.id === periodId));
+    const colorIndex = periodIndex % periodColors.length;
+    return `${periodBgLight[colorIndex]} ${periodBorders[colorIndex]}`;
   };
 
   // Helper function to check if two shifts overlap
@@ -1527,11 +1608,21 @@ export function RosterPatternsClient() {
     }
   };
 
-  const filteredSchedules = sortSchedulesByStartTime(
-    scheduleFilter === "all"
+  const minutesToTime = (m: number): string => {
+    const hours = Math.floor(m / 60);
+    const minutes = m % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  };
+
+  const getFilteredSchedules = () => {
+    const baseSchedules = scheduleFilter === "all"
       ? workSchedules
-      : workSchedules.filter((schedule) => getShiftPeriod(schedule) === scheduleFilter)
-  );
+      : workSchedules.filter((schedule) => getShiftPeriod(schedule) === scheduleFilter);
+
+    return sortSchedules(baseSchedules);
+  };
+
+  const filteredSchedules = getFilteredSchedules();
 
   return (
     <>
@@ -2332,13 +2423,14 @@ export function RosterPatternsClient() {
             <select
               className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm"
               value={scheduleFilter}
-              onChange={(e) => setScheduleFilter(e.target.value as typeof scheduleFilter)}
+              onChange={(e) => setScheduleFilter(e.target.value)}
             >
               <option value="all">All shifts</option>
-              <option value="night">Night (0:00-5:59)</option>
-              <option value="morning">Morning (6:00-11:59)</option>
-              <option value="day">Day (12:00-17:59)</option>
-              <option value="evening">Evening (18:00-23:59)</option>
+              {getActiveDayPeriods().map((period) => (
+                <option key={period.id} value={period.id}>
+                  {period.label} ({minutesToTime(period.startMinutes)}-{minutesToTime(period.endMinutes)})
+                </option>
+              ))}
             </select>
           </div>
           <div 
