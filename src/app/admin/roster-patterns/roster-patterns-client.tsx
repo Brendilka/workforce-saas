@@ -164,7 +164,8 @@ export function RosterPatternsClient() {
                 const dayKey = dayName.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
                 const existingShifts = Array.isArray(updatedRow[dayKey]) ? updatedRow[dayKey] : [];
                 const overflowFromPrevious = getOverflowFromPreviousDay(row, dayName);
-                const overlapMessage = getOverlapMessage(existingShifts, copiedSchedules, overflowFromPrevious);
+                const nextDayShifts = getCellSchedules(row.id, getNextDay(dayName));
+                const overlapMessage = getOverlapMessage(existingShifts, copiedSchedules, overflowFromPrevious, nextDayShifts);
 
                 if (overlapMessage) {
                   if (!warningShown) {
@@ -551,16 +552,21 @@ export function RosterPatternsClient() {
   const getTimeBetweenShifts = (endTime: string, startTime: string, isDifferentDay: boolean = false): number => {
     const endMinutes = timeStringToMinutes(endTime);
     const startMinutes = timeStringToMinutes(startTime);
-    
-    let diffMinutes = startMinutes - endMinutes;
-    
-    // Only add 24 hours if times are "wrapped" (start time is before end time on the clock)
-    // This handles both same-day wraps and different-day calculations correctly
-    if (diffMinutes < 0) {
-      diffMinutes += 24 * 60;
+    const minsPerDay = 24 * 60;
+
+    if (isDifferentDay) {
+      // Consecutive days: rest = (end of day 1 → midnight) + (midnight → start of day 2)
+      const minutesToMidnight = minsPerDay - endMinutes;
+      const minutesFromMidnight = startMinutes;
+      return (minutesToMidnight + minutesFromMidnight) / 60;
     }
-    
-    return diffMinutes / 60; // Convert to hours
+
+    // Same day: rest = start - end (with wrap if overnight)
+    let diffMinutes = startMinutes - endMinutes;
+    if (diffMinutes < 0) {
+      diffMinutes += minsPerDay;
+    }
+    return diffMinutes / 60;
   };
 
   const getShiftEndTime = (schedule: WorkSchedule): string => {
@@ -632,12 +638,15 @@ export function RosterPatternsClient() {
     for (let i = 0; i < schedules.length - 1; i++) {
       const currentShift = schedules[i];
       const nextShift = schedules[i + 1];
-      const currentEnd = getShiftEndTime(currentShift);
-      const nextStart = getShiftStartTime(nextShift);
-      const timeBetween = getTimeBetweenShifts(currentEnd, nextStart);
-      
+      let timeBetween: number;
+      if (shiftsOverlap(currentShift, nextShift, false)) {
+        timeBetween = 0; // overlapping shifts on same day
+      } else {
+        const currentEnd = getShiftEndTime(currentShift);
+        const nextStart = getShiftStartTime(nextShift);
+        timeBetween = getTimeBetweenShifts(currentEnd, nextStart);
+      }
       if (timeBetween < minHoursBetweenShifts) {
-        // Mark the previous shift (the one that ends) to show violation between them
         violatingShifts.push(currentShift);
         violationDetails.set(currentShift.id, { actualHours: timeBetween });
       }
@@ -651,12 +660,15 @@ export function RosterPatternsClient() {
       
       if (nextDaySchedules.length > 0) {
         const firstScheduleOfNextDay = nextDaySchedules[0];
-        const lastEnd = getShiftEndTime(lastScheduleOfDay);
-        const nextStart = getShiftStartTime(firstScheduleOfNextDay);
-        const timeBetween = getTimeBetweenShifts(lastEnd, nextStart, true);
-        
+        let timeBetween: number;
+        if (shiftSpansMidnight(lastScheduleOfDay) && shiftsOverlap(firstScheduleOfNextDay, lastScheduleOfDay, true)) {
+          timeBetween = 0; // overlapping: overnight overflow overlaps next day's first shift
+        } else {
+          const lastEnd = getShiftEndTime(lastScheduleOfDay);
+          const nextStart = getShiftStartTime(firstScheduleOfNextDay);
+          timeBetween = getTimeBetweenShifts(lastEnd, nextStart, true);
+        }
         if (timeBetween < minHoursBetweenShifts) {
-          // Always mark the current day's last shift (the one that ends) when there's insufficient gap
           violatingShifts.push(lastScheduleOfDay);
           violationDetails.set(lastScheduleOfDay.id, { actualHours: timeBetween });
         }
@@ -682,7 +694,8 @@ export function RosterPatternsClient() {
   const getOverlapMessage = (
     existingShifts: WorkSchedule[],
     incomingShifts: WorkSchedule[],
-    overflowFromPrevious: WorkSchedule[] = []
+    overflowFromPrevious: WorkSchedule[] = [],
+    nextDayShifts: WorkSchedule[] = []
   ) => {
     if (incomingShifts.length > 1) {
       return `Cannot add ${incomingShifts[0]?.shift_id || 'shift'}: cannot add multiple shifts at once`;
@@ -705,7 +718,17 @@ export function RosterPatternsClient() {
     }
 
     for (const overflow of overflowFromPrevious) {
-            if (shiftsOverlap(incoming, overflow, true)) {
+      if (shiftsOverlap(incoming, overflow, true)) {
+        return `Cannot add ${incoming.shift_id}: overlaps with overnight shift from previous day (${overflow.shift_id})`;
+      }
+    }
+
+    // If incoming spans midnight, its overflow would overlap with next day's shifts
+    if (shiftSpansMidnight(incoming) && nextDayShifts.length > 0) {
+      for (const nextShift of nextDayShifts) {
+        if (shiftsOverlap(nextShift, incoming, true)) {
+          return `Cannot add ${incoming.shift_id}: its overnight portion would overlap with ${nextShift.shift_id} on the next day`;
+        }
       }
     }
 
@@ -985,6 +1008,19 @@ export function RosterPatternsClient() {
               const message = `Cannot add ${draggedSchedule.shift_id}: overlaps with overnight shift from previous day (${overflow.shift_id})`;
               showOverlapWarning(message);
               return row; // Don't add the shift
+            }
+          }
+
+          // If dropped shift spans midnight, its overflow would spill into next day: check overlap with next day's shifts
+          if (shiftSpansMidnight(draggedSchedule)) {
+            const nextDayName = getNextDay(dayName);
+            const nextDayShifts = getCellSchedules(rowId, nextDayName);
+            for (const nextShift of nextDayShifts) {
+              if (shiftsOverlap(nextShift, draggedSchedule, true)) {
+                const message = `Cannot add ${draggedSchedule.shift_id}: its overnight portion would overlap with ${nextShift.shift_id} on ${nextDayName}`;
+                showOverlapWarning(message);
+                return row; // Don't add the shift
+              }
             }
           }
           
@@ -1342,6 +1378,14 @@ export function RosterPatternsClient() {
   const handleSavePattern = async () => {
     setSaving(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const tenantId = user?.user_metadata?.tenant_id as string | undefined;
+      if (!tenantId && !editingPatternId) {
+        alert('Unable to determine tenant. Please log in again.');
+        setSaving(false);
+        return;
+      }
+
       const payload = {
         shift_id: shiftId || 'Untitled Pattern',
         start_date: startDate || null,
@@ -1351,6 +1395,7 @@ export function RosterPatternsClient() {
         start_pattern_week: startPatternWeek,
         start_day: startDay,
         pattern_rows: patternRows as unknown as Json,
+        ...(tenantId ? { tenant_id: tenantId } : {}),
       };
 
       if (editingPatternId) {
@@ -1439,6 +1484,14 @@ export function RosterPatternsClient() {
 
     setIsCopying(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const tenantId = user?.user_metadata?.tenant_id as string | undefined;
+      if (!tenantId) {
+        alert('Unable to determine tenant. Please log in again.');
+        setIsCopying(false);
+        return;
+      }
+
       const payload = {
         shift_id: copyName || getDefaultCopyName(copySourcePattern.shift_id || 'Untitled'),
         start_date: copySourcePattern.start_date || null,
@@ -1448,6 +1501,7 @@ export function RosterPatternsClient() {
         start_pattern_week: copySourcePattern.start_pattern_week,
         start_day: copySourcePattern.start_day,
         pattern_rows: copySourcePattern.pattern_rows as unknown as Json,
+        tenant_id: tenantId,
       };
 
       const { data, error } = await supabase

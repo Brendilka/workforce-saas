@@ -4,20 +4,72 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Helper functions for overlap detection
 function shiftSpansMidnight(schedule: any): boolean {
-  const timeframes = schedule.work_schedule_timeframes || [];
+  const timeframes = schedule?.work_schedule_timeframes || [];
+  if (!Array.isArray(timeframes)) return false;
   return timeframes.some((tf: any) => {
+    if (!tf || typeof tf.start_time !== 'string' || typeof tf.end_time !== 'string') return false;
     const [sH, sM] = tf.start_time.split(':').map(Number);
     const [eH, eM] = tf.end_time.split(':').map(Number);
-    const startMins = sH * 60 + sM;
-    const endMins = eH * 60 + eM;
+    const startMins = (Number.isNaN(sH) ? 0 : sH) * 60 + (Number.isNaN(sM) ? 0 : sM);
+    const endMins = (Number.isNaN(eH) ? 0 : eH) * 60 + (Number.isNaN(eM) ? 0 : eM);
     return endMins < startMins;
   });
 }
 
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+
+type PatternRowRecord = { number?: number; [key: string]: unknown };
+
 function getPreviousDay(day: string): string {
-  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-  const index = days.indexOf(day.toLowerCase());
-  return days[(index - 1 + 7) % 7];
+  const index = DAYS.indexOf(day.toLowerCase() as typeof DAYS[number]);
+  return DAYS[(index - 1 + 7) % 7];
+}
+
+function getNextDay(day: string): string {
+  const index = DAYS.indexOf(day.toLowerCase() as typeof DAYS[number]);
+  return DAYS[(index + 1) % 7];
+}
+
+function timeStringToMinutes(timeStr: string | undefined | null): number {
+  if (timeStr == null || typeof timeStr !== 'string') return 0;
+  const parts = timeStr.split(':').map(Number);
+  const hours = Number.isNaN(parts[0]) ? 0 : parts[0];
+  const minutes = Number.isNaN(parts[1]) ? 0 : parts[1];
+  return hours * 60 + minutes;
+}
+
+function getTimeBetweenShifts(endTime: string, startTime: string, isDifferentDay: boolean): number {
+  const endMinutes = timeStringToMinutes(endTime);
+  const startMinutes = timeStringToMinutes(startTime);
+  const minsPerDay = 24 * 60;
+  if (isDifferentDay) {
+    const minutesToMidnight = minsPerDay - endMinutes;
+    const minutesFromMidnight = startMinutes;
+    return (minutesToMidnight + minutesFromMidnight) / 60;
+  }
+  let diffMinutes = startMinutes - endMinutes;
+  if (diffMinutes < 0) diffMinutes += minsPerDay;
+  return diffMinutes / 60;
+}
+
+function getShiftEndTime(schedule: any): string {
+  const tf = (schedule?.work_schedule_timeframes || []).filter(
+    (t: any) => t != null && typeof t.end_time === 'string'
+  );
+  if (tf.length === 0) return '00:00';
+  const sorted = [...tf].sort((a: any, b: any) => (a.frame_order ?? 0) - (b.frame_order ?? 0));
+  const end = sorted[sorted.length - 1]?.end_time;
+  return typeof end === 'string' ? end : '00:00';
+}
+
+function getShiftStartTime(schedule: any): string {
+  const tf = (schedule?.work_schedule_timeframes || []).filter(
+    (t: any) => t != null && typeof t.start_time === 'string'
+  );
+  if (tf.length === 0) return '00:00';
+  const sorted = [...tf].sort((a: any, b: any) => (a.frame_order ?? 0) - (b.frame_order ?? 0));
+  const start = sorted[0]?.start_time;
+  return typeof start === 'string' ? start : '00:00';
 }
 
 function checkShiftOverlap(schedule1: any, schedule2: any, isSchedule2Overflow: boolean): boolean {
@@ -145,7 +197,7 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    const { shiftId, shiftType, description, timeframes } = body;
+    const { shiftId, shiftType, description, timeframes, validateOnly } = body;
 
     if (!shiftId || !shiftType || !timeframes || timeframes.length === 0) {
       return NextResponse.json(
@@ -164,9 +216,11 @@ export async function PUT(
       }
     }
 
-    const normalizeInterval = (start: string, end: string) => {
-      const [sH, sM] = start.split(":").map(Number);
-      const [eH, eM] = end.split(":").map(Number);
+    const normalizeInterval = (start: unknown, end: unknown) => {
+      const startStr = typeof start === "string" ? start : "";
+      const endStr = typeof end === "string" ? end : "";
+      const [sH, sM] = startStr.split(":").map((n) => (Number.isNaN(Number(n)) ? 0 : Number(n)));
+      const [eH, eM] = endStr.split(":").map((n) => (Number.isNaN(Number(n)) ? 0 : Number(n)));
       const s = sH * 60 + sM;
       let e = eH * 60 + eM;
       if (e < s) e += 24 * 60;
@@ -176,9 +230,20 @@ export async function PUT(
     // Validate each timeframe's meal is within its own boundaries
     for (const tf of timeframes) {
       if (tf.mealStart && tf.mealEnd) {
+        if (tf.startTime == null || tf.endTime == null || typeof tf.startTime !== "string" || typeof tf.endTime !== "string") {
+          return NextResponse.json(
+            { error: "Each timeframe must have valid start and end times" },
+            { status: 400 }
+          );
+        }
         const meal = normalizeInterval(tf.mealStart, tf.mealEnd);
         const frame = normalizeInterval(tf.startTime, tf.endTime);
-        
+        if (Number.isNaN(frame.start) || Number.isNaN(frame.end) || Number.isNaN(meal.start) || Number.isNaN(meal.end)) {
+          return NextResponse.json(
+            { error: "Invalid time format in timeframe or meal" },
+            { status: 400 }
+          );
+        }
         if (meal.end <= meal.start) {
           return NextResponse.json(
             { error: "Meal end must be later than meal start" },
@@ -205,15 +270,42 @@ export async function PUT(
     // Use service role client for updates
     const adminClient = createAdminClient();
 
-    // Get the current schedule to detect changes
+    // Get the current schedule and its timeframes (for "only warn when this edit causes the violation")
     const { data: currentSchedule, error: fetchCurrentError } = await adminClient
       .from("work_schedules")
-      .select("shift_id")
+      .select("shift_id, work_schedule_timeframes(start_time, end_time, frame_order)")
       .eq("id", id)
       .eq("tenant_id", tenantId)
       .single();
 
     if (fetchCurrentError) throw fetchCurrentError;
+    if (!currentSchedule) {
+      return NextResponse.json({ error: "Schedule not found" }, { status: 404 });
+    }
+
+    const currentTimeframes = (currentSchedule as any).work_schedule_timeframes || [];
+    const currentScheduleWithTimeframes = {
+      id,
+      shift_id: (currentSchedule as any).shift_id,
+      work_schedule_timeframes: Array.isArray(currentTimeframes)
+        ? currentTimeframes.map((tf: any, index: number) => ({
+            start_time: tf.start_time,
+            end_time: tf.end_time,
+            frame_order: tf.frame_order ?? index,
+          }))
+        : [],
+    };
+
+    // Load minimum hours between shifts from tenant config
+    let minHoursBetweenShifts = 8;
+    const { data: tenantConfig } = await adminClient
+      .from("tenant_config")
+      .select("min_hours_between_shifts")
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (tenantConfig?.min_hours_between_shifts != null) {
+      minHoursBetweenShifts = Number(tenantConfig.min_hours_between_shifts);
+    }
 
     // Check if this work schedule is used in any roster patterns
     const { data: rosterPatterns, error: rosterError } = await adminClient
@@ -223,80 +315,162 @@ export async function PUT(
 
     if (rosterError) throw rosterError;
 
-    // Find patterns that use this schedule and check for violations
-    const affectedPatterns: Array<{id: string, shift_id: string, violations: string[]}> = [];
-    
-    if (rosterPatterns) {
-      for (const pattern of rosterPatterns) {
-        const patternRows = pattern.pattern_rows as any[];
-        let hasShift = false;
-        const violations: string[] = [];
+    // Single modified schedule with new timeframes for validation
+    const modifiedSchedule = {
+      id,
+      shift_id: shiftId,
+      work_schedule_timeframes: timeframes.map((tf: any, index: number) => ({
+        start_time: tf.startTime,
+        end_time: tf.endTime,
+        frame_order: index,
+      })),
+    };
 
-        for (const row of patternRows) {
-          for (const day of ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']) {
-            const schedules = row[day];
-            if (Array.isArray(schedules)) {
+    const overlapAffectedPatterns: Array<{ id: string; shift_id: string; violations: string[] }> = [];
+    const restTimeAffectedPatterns: Array<{ id: string; shift_id: string; violations: string[] }> = [];
+
+    try {
+      if (rosterPatterns && Array.isArray(rosterPatterns)) {
+        for (const pattern of rosterPatterns) {
+          const patternRows = pattern?.pattern_rows;
+          if (!Array.isArray(patternRows)) continue;
+          let patternUsesSchedule = false;
+          const overlapViolations: string[] = [];
+          const restTimeViolations: string[] = [];
+
+          for (const row of patternRows) {
+            if (!row) continue;
+            const rowRecord = row as PatternRowRecord;
+            for (const day of DAYS) {
+              const rawSchedules = rowRecord[day];
+              if (!Array.isArray(rawSchedules)) continue;
+              const schedules = rawSchedules.map((s: any) => (s?.id === id ? modifiedSchedule : s));
+
               for (const schedule of schedules) {
-                if (schedule.id === id) {
-                  hasShift = true;
-                  
-                  // Create a modified version with new timeframes
-                  const modifiedSchedule = {
-                    ...schedule,
-                    shift_id: shiftId,
-                    work_schedule_timeframes: timeframes.map((tf: any, index: number) => ({
-                      start_time: tf.startTime,
-                      end_time: tf.endTime,
-                      frame_order: index,
-                    }))
-                  };
-
-                  // Check overlaps with other shifts in same day
-                  for (const otherSchedule of schedules) {
-                    if (otherSchedule.id !== id) {
-                      if (checkShiftOverlap(modifiedSchedule, otherSchedule, false)) {
-                        violations.push(`Week ${row.number}, ${day.charAt(0).toUpperCase() + day.slice(1)}: overlaps with ${otherSchedule.shift_id}`);
-                      }
+                if (schedule?.id === id) patternUsesSchedule = true;
+              }
+              // Overlap: same day with other shifts (when current day has the edited schedule)
+              for (const schedule of schedules) {
+                if (schedule?.id === id) {
+                  for (const other of schedules) {
+                    if (other?.id !== id && other && checkShiftOverlap(modifiedSchedule, other, false)) {
+                      overlapViolations.push(`Week ${rowRecord.number ?? '?'}, ${day.charAt(0).toUpperCase() + day.slice(1)}: overlaps with ${other.shift_id ?? 'shift'}`);
                     }
                   }
-
-                  // Check overlaps with overflow from previous day
-                  const prevDay = getPreviousDay(day);
-                  const prevDaySchedules = row[prevDay];
-                  if (Array.isArray(prevDaySchedules)) {
-                    for (const prevSchedule of prevDaySchedules) {
-                      if (shiftSpansMidnight(prevSchedule)) {
-                        if (checkShiftOverlap(modifiedSchedule, prevSchedule, true)) {
-                          violations.push(`Week ${row.number}, ${day.charAt(0).toUpperCase() + day.slice(1)}: overlaps with overnight shift ${prevSchedule.shift_id} from ${prevDay}`);
-                        }
-                      }
-                    }
+                  break;
+                }
+              }
+              // Overlap: overflow from previous day (run for every day; prev day uses modified times when it's the edited schedule)
+              const prevDay = getPreviousDay(day);
+              const prevDaySchedules = Array.isArray(rowRecord[prevDay]) ? (rowRecord[prevDay] as any[]).map((s: any) => (s?.id === id ? modifiedSchedule : s)) : [];
+              const firstCurrent = schedules[0];
+              if (firstCurrent) {
+                for (const prev of prevDaySchedules) {
+                  if (prev && shiftSpansMidnight(prev) && checkShiftOverlap(firstCurrent, prev, true)) {
+                    overlapViolations.push(`Week ${rowRecord.number ?? '?'}, ${day.charAt(0).toUpperCase() + day.slice(1)}: overlaps with overnight shift ${prev.shift_id ?? 'shift'} from ${prevDay}`);
                   }
                 }
               }
+
+              // Helper: only add rest-time violation if this edit *causes* it (new gap < min, old gap was >= min)
+              const maybeAddRestViolation = (
+                lastSchedule: any,
+                nextSchedule: any,
+                isDifferentDay: boolean,
+                label: string
+              ) => {
+                if (!lastSchedule || !nextSchedule) return;
+                const involvesEdited = lastSchedule.id === id || nextSchedule.id === id;
+                if (!involvesEdited) return;
+                const endOld = lastSchedule.id === id ? getShiftEndTime(currentScheduleWithTimeframes) : getShiftEndTime(lastSchedule);
+                const startOld = nextSchedule.id === id ? getShiftStartTime(currentScheduleWithTimeframes) : getShiftStartTime(nextSchedule);
+                const timeBetweenOld = getTimeBetweenShifts(endOld, startOld, isDifferentDay);
+                const timeBetweenNew = getTimeBetweenShifts(getShiftEndTime(lastSchedule), getShiftStartTime(nextSchedule), isDifferentDay);
+                if (timeBetweenNew < minHoursBetweenShifts && timeBetweenOld >= minHoursBetweenShifts) {
+                  restTimeViolations.push(`Week ${rowRecord.number ?? '?'}, ${label}: rest involving this schedule is ${timeBetweenNew.toFixed(1)}h (min ${minHoursBetweenShifts}h)`);
+                }
+              };
+
+              // Rest time: previous day last (non-overflow) -> current first; reuse prevDaySchedules from overlap block
+              const prevNonOverflow = prevDaySchedules.filter((s: any) => s && !shiftSpansMidnight(s));
+              const currentSchedules = schedules;
+              if (prevNonOverflow.length > 0 && currentSchedules.length > 0) {
+                const lastPrev = prevNonOverflow[prevNonOverflow.length - 1];
+                const firstCur = currentSchedules[0];
+                const dayLabel = day.charAt(0).toUpperCase() + day.slice(1);
+                maybeAddRestViolation(lastPrev, firstCur, true, `${dayLabel}: rest between previous day and ${dayLabel}`);
+              }
+              // Rest time: within same day
+              for (let i = 0; i < schedules.length - 1; i++) {
+                const cur = schedules[i];
+                const next = schedules[i + 1];
+                const dayLabel = day.charAt(0).toUpperCase() + day.slice(1);
+                maybeAddRestViolation(cur, next, false, `${dayLabel}: rest between shifts`);
+              }
+              // Rest time: current day last -> next day first
+              const nextDay = getNextDay(day);
+              const nextDaySchedules = Array.isArray(rowRecord[nextDay]) ? (rowRecord[nextDay] as any[]).map((s: any) => (s?.id === id ? modifiedSchedule : s)) : [];
+              if (currentSchedules.length > 0 && nextDaySchedules.length > 0) {
+                const lastCur = currentSchedules[currentSchedules.length - 1];
+                const firstNext = nextDaySchedules[0];
+                const dayLabel = day.charAt(0).toUpperCase() + day.slice(1);
+                maybeAddRestViolation(lastCur, firstNext, true, `${dayLabel} → ${nextDay}: rest to next day`);
+              }
             }
           }
-        }
 
-        if (hasShift && violations.length > 0) {
-          affectedPatterns.push({
-            id: pattern.id,
-            shift_id: pattern.shift_id || 'Unnamed Pattern',
-            violations
-          });
+          if (patternUsesSchedule && overlapViolations.length > 0) {
+            overlapAffectedPatterns.push({
+              id: pattern.id,
+              shift_id: pattern.shift_id || 'Unnamed Pattern',
+              violations: overlapViolations,
+            });
+          }
+          if (patternUsesSchedule && restTimeViolations.length > 0) {
+            restTimeAffectedPatterns.push({
+              id: pattern.id,
+              shift_id: pattern.shift_id || 'Unnamed Pattern',
+              violations: restTimeViolations,
+            });
+          }
         }
       }
+    } catch (validationErr) {
+      console.error("Work schedule update: roster validation error", validationErr);
+      return NextResponse.json(
+        {
+          error: "Validation failed while checking roster patterns. You can try saving again, or remove this work schedule from all roster patterns first and then edit it.",
+        },
+        { status: 400 }
+      );
     }
 
-    // If there are violations, return error with details
-    if (affectedPatterns.length > 0) {
+    // Block save if any pattern would have overlaps; user must remove schedule from those patterns first
+    if (overlapAffectedPatterns.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Cannot save: this change would cause overlapping shifts in one or more roster patterns. Remove this work schedule from the affected pattern(s) before saving, or edit the pattern to resolve the overlap.",
+          blockReason: "overlap",
+          affectedPatterns: overlapAffectedPatterns.map((p) => ({
+            patternName: p.shift_id,
+            patternId: p.id,
+            violations: p.violations,
+          })),
+        },
+        { status: 400 }
+      );
+    }
+
+    // Validate-only: return rest-time warnings without saving (so client can show Save anyway / Cancel)
+    if (validateOnly === true) {
       return NextResponse.json({
-        error: "Cannot update schedule: changes would cause overlaps in roster patterns",
-        affectedPatterns: affectedPatterns.map(p => ({
+        allowed: true,
+        restTimeAffectedPatterns: restTimeAffectedPatterns.map((p) => ({
           patternName: p.shift_id,
-          violations: p.violations
-        }))
-      }, { status: 400 });
+          patternId: p.id,
+          violations: p.violations,
+        })),
+      });
     }
 
     // Update work schedule
@@ -337,39 +511,51 @@ export async function PUT(
 
     if (timeframesError) throw timeframesError;
 
-    // If shift_id changed, update all roster pattern references
-    if (currentSchedule.shift_id !== shiftId) {
-      // Update all roster patterns that reference this schedule
-      if (rosterPatterns) {
-        for (const pattern of rosterPatterns) {
-          const patternRows = pattern.pattern_rows as any[];
-          let hasChanges = false;
+    // Build the updated schedule definition to push into roster patterns
+    const updatedScheduleDefinition = {
+      id,
+      shift_id: shiftId,
+      shift_type: shiftType,
+      description: description || null,
+      work_schedule_timeframes: timeframes.map(
+        (tf: { startTime: string; endTime: string; mealType?: string; mealStart?: string; mealEnd?: string }, index: number) => ({
+          start_time: tf.startTime,
+          end_time: tf.endTime,
+          frame_order: index,
+          meal_type: tf.mealType || "paid",
+          meal_start: tf.mealStart || null,
+          meal_end: tf.mealEnd || null,
+        })
+      ),
+    };
 
-          // Deep clone to avoid modifying original
-          const updatedRows = JSON.parse(JSON.stringify(patternRows));
+    // Refresh this schedule's definition in all roster patterns that use it (so pattern UI shows updated times)
+    if (rosterPatterns && Array.isArray(rosterPatterns)) {
+      for (const pattern of rosterPatterns) {
+        const patternRows = pattern?.pattern_rows;
+        if (!Array.isArray(patternRows)) continue;
+        let hasChanges = false;
+        const updatedRows = JSON.parse(JSON.stringify(patternRows));
 
-          for (const row of updatedRows) {
-            for (const day of ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']) {
-              const schedules = row[day];
-              if (Array.isArray(schedules)) {
-                for (const schedule of schedules) {
-                  if (schedule.id === id) {
-                    schedule.shift_id = shiftId;
-                    hasChanges = true;
-                  }
-                }
+        for (const row of updatedRows) {
+          for (const day of DAYS) {
+            const schedules = row[day];
+            if (!Array.isArray(schedules)) continue;
+            for (let i = 0; i < schedules.length; i++) {
+              if (schedules[i]?.id === id) {
+                schedules[i] = { ...schedules[i], ...updatedScheduleDefinition };
+                hasChanges = true;
               }
             }
           }
+        }
 
-          // Update pattern if changes were made
-          if (hasChanges) {
-            await adminClient
-              .from("roster_patterns")
-              .update({ pattern_rows: updatedRows })
-              .eq("id", pattern.id)
-              .eq("tenant_id", tenantId);
-          }
+        if (hasChanges) {
+          await adminClient
+            .from("roster_patterns")
+            .update({ pattern_rows: updatedRows })
+            .eq("id", pattern.id)
+            .eq("tenant_id", tenantId);
         }
       }
     }
@@ -397,15 +583,25 @@ export async function PUT(
       throw new Error("Schedule was updated but could not be fetched");
     }
 
-    return NextResponse.json(schedules[0]);
+    const payload: Record<string, unknown> = { ...schedules[0] };
+    if (restTimeAffectedPatterns.length > 0) {
+      payload.warnings = {
+        restTimeViolations: restTimeAffectedPatterns.map((p) => ({
+          patternName: p.shift_id,
+          patternId: p.id,
+          violations: p.violations,
+        })),
+      };
+    }
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("Error updating schedule:", error);
     const message =
       error instanceof Error
         ? error.message
         : typeof error === "string"
-        ? error
-        : JSON.stringify(error);
+          ? error
+          : JSON.stringify(error);
     return NextResponse.json(
       { error: message || "Failed to update schedule" },
       { status: 500 }
