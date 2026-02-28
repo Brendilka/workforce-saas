@@ -1926,7 +1926,7 @@ export function RosterPatternsClient() {
           }
           if (!shiftsByDate[dateKey]) shiftsByDate[dateKey] = [];
           shiftsByDate[dateKey].push({
-            shiftId: sourceSchedule?.shift_id || 'Unknown',
+            shiftId: (sourceSchedule as WorkSchedule | null)?.shift_id || 'Unknown',
             minutes: segment.minutes,
             schedule: sourceSchedule || {} as WorkSchedule
           });
@@ -1944,7 +1944,7 @@ export function RosterPatternsClient() {
           }
           if (!shiftsByDate[dateKey]) shiftsByDate[dateKey] = [];
           shiftsByDate[dateKey].push({
-            shiftId: sourceSchedule?.shift_id || 'Unknown',
+            shiftId: (sourceSchedule as WorkSchedule | null)?.shift_id || 'Unknown',
             minutes: perDay,
             schedule: sourceSchedule || {} as WorkSchedule
           });
@@ -1960,7 +1960,7 @@ export function RosterPatternsClient() {
         }
         if (!shiftsByDate[dateKey]) shiftsByDate[dateKey] = [];
         shiftsByDate[dateKey].push({
-          shiftId: sourceSchedule?.shift_id || 'Unknown',
+          shiftId: (sourceSchedule as WorkSchedule | null)?.shift_id || 'Unknown',
           minutes: durationMinutes,
           schedule: sourceSchedule || {} as WorkSchedule
         });
