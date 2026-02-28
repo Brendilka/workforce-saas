@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,10 +14,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Calendar as CalendarIcon, Plus, Trash2, Minus, Info, Copy } from "lucide-react";
+import { Calendar as CalendarIcon, Plus, Trash2, Minus, Info, Copy, Zap, Eye } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Json } from "@/types/supabase";
 import type { ShiftTypeOption, DayPeriodConfig } from "@/lib/types/database";
+import { getPeriodCardStyle, getPeriodTileTextColor } from "@/lib/day-period-colors";
+import { computeAllocationDate, type Shift, type RosterPatternSettings } from "@/lib/shift-allocation";
+import { simulateAllocationImpact } from "@/lib/allocation-simulation";
+import { AllocationExplanationDrawer } from "@/components/allocation-explanation-drawer";
+import { AllocationSimulationModal } from "@/components/allocation-simulation-modal";
+import { ShiftDetailsPanel } from "@/components/shift-details-panel";
 
 interface TimeFrame {
   start_time: string;
@@ -40,7 +46,7 @@ interface PatternRow {
   sunday: WorkSchedule[];
 }
 
-interface WorkSchedule {
+export interface WorkSchedule {
   id: string;
   shift_id: string;
   shift_type: string;
@@ -57,6 +63,8 @@ interface SavedPattern {
   weeks_pattern: string;
   start_pattern_week: string;
   start_day: string;
+  night_shift_allocation_mode?: "START_DAY" | "MAJORITY_HOURS" | "FIXED_ROSTER_DAY" | "SPLIT_BY_DAY" | "WEEKLY_BALANCING";
+  night_shift_allocation_params?: Record<string, unknown> | null;
   pattern_rows: PatternRow[];
   created_at?: string;
 }
@@ -81,6 +89,10 @@ export function RosterPatternsClient() {
   const [weeksPattern, setWeeksPattern] = useState("1");
   const [startPatternWeek, setStartPatternWeek] = useState("1");
   const [startDay, setStartDay] = useState("Monday");
+  const [allocationMode, setAllocationMode] = useState<"START_DAY" | "MAJORITY_HOURS" | "FIXED_ROSTER_DAY" | "SPLIT_BY_DAY" | "WEEKLY_BALANCING">("MAJORITY_HOURS");
+  const [savedAllocationMode, setSavedAllocationMode] = useState<"START_DAY" | "MAJORITY_HOURS" | "FIXED_ROSTER_DAY" | "SPLIT_BY_DAY" | "WEEKLY_BALANCING">("MAJORITY_HOURS");
+  const [savedAllocationParams, setSavedAllocationParams] = useState<Record<string, unknown>>({});
+  const [allocationParams, setAllocationParams] = useState<Record<string, unknown>>({});
   const [patternRows, setPatternRows] = useState<PatternRow[]>([
     {
       id: "1",
@@ -98,6 +110,8 @@ export function RosterPatternsClient() {
   const [stretchStart, setStretchStart] = useState<{rowId: string, day: string, schedule: WorkSchedule} | null>(null);
   const [stretchCurrent, setStretchCurrent] = useState<{rowId: string, day: string} | null>(null);
   const [selectedCell, setSelectedCell] = useState<{rowId: string, day: string} | null>(null);
+  const [selectedCellDetails, setSelectedCellDetails] = useState<{rowId: string, day: string, date: Date, weekNumber?: number} | null>(null);
+  const [selectedShiftDetails, setSelectedShiftDetails] = useState<{schedule: WorkSchedule; daySchedules: WorkSchedule[]} | null>(null);
   const [undoHistory, setUndoHistory] = useState<PatternRow[][]>([]);
   const [multiSelect, setMultiSelect] = useState<{rowId: string, day: string}[]>([]);
   const [hoverEdge, setHoverEdge] = useState<{rowId: string, day: string, edge: string} | null>(null);
@@ -122,6 +136,16 @@ export function RosterPatternsClient() {
   const [weeksReductionDialog, setWeeksReductionDialog] = useState<{show: boolean, targetWeeks: number, nonEmptyWeeks: number[]}>({show: false, targetWeeks: 0, nonEmptyWeeks: []});
   const [dayPeriods, setDayPeriods] = useState<DayPeriodConfig[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftTypeOption[] | null>(null);
+
+  // Enterprise allocation features
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [showSimulation, setShowSimulation] = useState(false);
+  const [selectedShiftForExplanation, setSelectedShiftForExplanation] = useState<Shift | null>(null);
+  const [selectedShiftForSimulation, setSelectedShiftForSimulation] = useState<WorkSchedule | null>(null);
+  const [simulationResult, setSimulationResult] = useState<ReturnType<typeof simulateAllocationImpact> | null>(null);
+  const [expandedPayrollRows, setExpandedPayrollRows] = useState<Set<string>>(new Set());
+  const [simulationLoading, setSimulationLoading] = useState(false);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
 
   const supabase = createClient();
 
@@ -174,12 +198,27 @@ export function RosterPatternsClient() {
                 const dayKey = dayName.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
                 const existingShifts = Array.isArray(updatedRow[dayKey]) ? updatedRow[dayKey] : [];
                 const overflowFromPrevious = getOverflowFromPreviousDay(row, dayName);
-                const nextDayShifts = getCellSchedules(row.id, getNextDay(dayName));
-                const overlapMessage = getOverlapMessage(existingShifts, copiedSchedules, overflowFromPrevious, nextDayShifts);
+                const nextDayShifts = shouldCheckNextDay(row, dayName)
+                  ? getAdjacentDaySchedules(row, dayName, 'next')
+                  : [];
+                const allowOvernightWrap = !!copiedSchedules[0]
+                  && shouldAllowLastCellOvernightOverlap(row, dayName, copiedSchedules[0]);
+                const { blockMessage, warningMessage } = getOverlapMessage(
+                  existingShifts,
+                  copiedSchedules,
+                  overflowFromPrevious,
+                  nextDayShifts,
+                  allowOvernightWrap
+                );
 
-                if (overlapMessage) {
+                if (warningMessage && !warningShown) {
+                  showOverlapWarning(warningMessage);
+                  warningShown = true;
+                }
+
+                if (blockMessage) {
                   if (!warningShown) {
-                    showOverlapWarning(overlapMessage);
+                    showOverlapWarning(blockMessage);
                     warningShown = true;
                   }
                   return;
@@ -325,8 +364,8 @@ export function RosterPatternsClient() {
         }
 
         if (Array.isArray(row.day_periods) && row.day_periods.length > 0) {
-          const sorted = [...row.day_periods].sort((a, b) => a.startMinutes - b.startMinutes);
-          setDayPeriods(sorted);
+          // Preserve stored order (matches Settings and Work Schedule columns)
+          setDayPeriods([...row.day_periods]);
         } else {
           setDayPeriods(DEFAULT_DAY_PERIODS);
         }
@@ -421,8 +460,11 @@ export function RosterPatternsClient() {
 
   const hasOverflowFromPreviousWeek = (rowIndex: number): boolean => {
     if (rowIndex <= 0) return false;
+    const orderedDays = getOrderedDays();
+    const lastDayInOrder = orderedDays[orderedDays.length - 1];
+    const lastDayKey = lastDayInOrder.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
     const prevRow = patternRows[rowIndex - 1];
-    return prevRow.sunday.some(s => shiftSpansMidnight(s));
+    return (prevRow[lastDayKey] ?? []).some((s: WorkSchedule) => shiftSpansMidnight(s));
   };
 
   const getNonEmptyWeeksInRange = (targetWeeks: number): number[] => {
@@ -519,6 +561,37 @@ export function RosterPatternsClient() {
     return Array.isArray(row[dayKey]) ? row[dayKey] : [];
   };
 
+  const getAdjacentDaySchedules = (row: PatternRow, dayName: string, direction: 'next' | 'prev'): WorkSchedule[] => {
+    const orderedDays = getOrderedDays();
+    const dayIndex = orderedDays.indexOf(dayName);
+    if (dayIndex === -1) return [];
+
+    const rowIndex = patternRows.findIndex(r => r.id === row.id);
+    if (rowIndex === -1) return [];
+
+    if (direction === 'next') {
+      if (dayIndex < orderedDays.length - 1) {
+        return getCellSchedules(row.id, orderedDays[dayIndex + 1]);
+      }
+      const nextRow = patternRows[rowIndex + 1];
+      if (nextRow) return getCellSchedules(nextRow.id, orderedDays[0]);
+      if (endDateType === 'continuous' && patternRows.length > 0) {
+        return getCellSchedules(patternRows[0].id, orderedDays[0]);
+      }
+      return [];
+    }
+
+    if (dayIndex > 0) {
+      return getCellSchedules(row.id, orderedDays[dayIndex - 1]);
+    }
+    const prevRow = patternRows[rowIndex - 1];
+    if (prevRow) return getCellSchedules(prevRow.id, orderedDays[orderedDays.length - 1]);
+    if (endDateType === 'continuous' && patternRows.length > 0) {
+      return getCellSchedules(patternRows[patternRows.length - 1].id, orderedDays[orderedDays.length - 1]);
+    }
+    return [];
+  };
+
   const getOverflowFromPreviousDay = (row: PatternRow, dayName: string): WorkSchedule[] => {
     const isFirstRow = row.number === 1;
     const isLastRow = row.number === patternRows.length;
@@ -579,6 +652,20 @@ export function RosterPatternsClient() {
     return hours * 60 + minutes;
   };
 
+  const formatHoursValue = (hours: number): string => {
+    return hours % 1 === 0 ? String(hours) : hours.toFixed(1);
+  };
+
+  const getViolationMessage = (actualHours: number, minHours: number, includeSettings: boolean): string => {
+    const displayMin = formatHoursValue(minHours);
+    if (actualHours < 0) {
+      const overlap = formatHoursValue(Math.abs(actualHours));
+      return `Shifts overlap by ${overlap} hours. Minimum rest is ${displayMin} hours.${includeSettings ? " You can change this value in Settings." : ""}`;
+    }
+    const displayActual = formatHoursValue(actualHours);
+    return `Time between shifts is ${displayActual} hours, but minimum allowed is ${displayMin} hours.${includeSettings ? " You can change this value in Settings." : ""}`;
+  };
+
   const getTimeBetweenShifts = (endTime: string, startTime: string, isDifferentDay: boolean = false): number => {
     const endMinutes = timeStringToMinutes(endTime);
     const startMinutes = timeStringToMinutes(startTime);
@@ -612,7 +699,7 @@ export function RosterPatternsClient() {
   };
 
   const checkShiftViolations = (row: PatternRow, dayName: string): {violatingShifts: WorkSchedule[], violatesMin: (schedule: WorkSchedule) => boolean, getViolationDetails: (schedule: WorkSchedule) => {actualHours: number} | null} => {
-    const schedules = getCellSchedules(row.id, dayName);
+    const schedules = sortSchedules(getCellSchedules(row.id, dayName));
     if (schedules.length === 0) {
       return { violatingShifts: [], violatesMin: () => false, getViolationDetails: () => null };
     }
@@ -621,7 +708,7 @@ export function RosterPatternsClient() {
     const violationDetails = new Map<string, {actualHours: number}>();
     
     // Get shifts from previous day overflow
-    const overflowShifts = getOverflowFromPreviousDay(row, dayName);
+    const overflowShifts = sortSchedules(getOverflowFromPreviousDay(row, dayName));
     
     // Check for overlaps with overflow shifts (only mark overlaps, not time gaps)
     if (overflowShifts.length > 0) {
@@ -632,16 +719,13 @@ export function RosterPatternsClient() {
       // (Gap violations are marked on the previous day's shift)
       if (shiftsOverlap(firstSchedule, lastOverflow, true)) {
         violatingShifts.push(firstSchedule);
-        const lastOverflowEnd = getShiftEndTime(lastOverflow);
-        const firstScheduleStart = getShiftStartTime(firstSchedule);
-        const timeBetween = getTimeBetweenShifts(lastOverflowEnd, firstScheduleStart);
-        violationDetails.set(firstSchedule.id, { actualHours: timeBetween });
+        const overlapHours = getOverlapHours(firstSchedule, lastOverflow, true);
+        violationDetails.set(firstSchedule.id, { actualHours: overlapHours > 0 ? -overlapHours : 0 });
       }
     }
 
     // Check time between last non-overflow shift of previous day and first shift of current day
-    const previousDayName = getPreviousDay(dayName);
-    const previousDaySchedules = getCellSchedules(row.id, previousDayName);
+    const previousDaySchedules = sortSchedules(getAdjacentDaySchedules(row, dayName, 'prev'));
     
     if (previousDaySchedules.length > 0) {
       // Get the last non-overflow shift from previous day
@@ -670,7 +754,8 @@ export function RosterPatternsClient() {
       const nextShift = schedules[i + 1];
       let timeBetween: number;
       if (shiftsOverlap(currentShift, nextShift, false)) {
-        timeBetween = 0; // overlapping shifts on same day
+        const overlapHours = getOverlapHours(currentShift, nextShift, false);
+        timeBetween = overlapHours > 0 ? -overlapHours : 0;
       } else {
         const currentEnd = getShiftEndTime(currentShift);
         const nextStart = getShiftStartTime(nextShift);
@@ -685,22 +770,32 @@ export function RosterPatternsClient() {
     // Check time between last shift of current day and first shift of next day (forward check)
     if (schedules.length > 0) {
       const lastScheduleOfDay = schedules[schedules.length - 1];
-      const nextDayName = getNextDay(dayName);
-      const nextDaySchedules = getCellSchedules(row.id, nextDayName);
+      const nextDaySchedules = sortSchedules(getAdjacentDaySchedules(row, dayName, 'next'));
       
       if (nextDaySchedules.length > 0) {
         const firstScheduleOfNextDay = nextDaySchedules[0];
         let timeBetween: number;
         if (shiftSpansMidnight(lastScheduleOfDay) && shiftsOverlap(firstScheduleOfNextDay, lastScheduleOfDay, true)) {
-          timeBetween = 0; // overlapping: overnight overflow overlaps next day's first shift
+          const overlapHours = getOverlapHours(firstScheduleOfNextDay, lastScheduleOfDay, true);
+          timeBetween = overlapHours > 0 ? -overlapHours : 0;
+        } else if (shiftSpansMidnight(lastScheduleOfDay)) {
+          // For overnight shifts: the end time is already on the next day, so just compare times directly
+          const lastEnd = getShiftEndTime(lastScheduleOfDay);
+          const nextStart = getShiftStartTime(firstScheduleOfNextDay);
+          timeBetween = getTimeBetweenShifts(lastEnd, nextStart, false);
         } else {
           const lastEnd = getShiftEndTime(lastScheduleOfDay);
           const nextStart = getShiftStartTime(firstScheduleOfNextDay);
           timeBetween = getTimeBetweenShifts(lastEnd, nextStart, true);
         }
         if (timeBetween < minHoursBetweenShifts) {
-          violatingShifts.push(lastScheduleOfDay);
-          violationDetails.set(lastScheduleOfDay.id, { actualHours: timeBetween });
+          // When the violation is overlap with next day's first shift and we span midnight, only mark
+          // the next day's shift (in the "overflow from prev" check), not this one - so we show a single exclamation.
+          const isOverlapWithOvernight = shiftSpansMidnight(lastScheduleOfDay) && timeBetween < 0;
+          if (!isOverlapWithOvernight) {
+            violatingShifts.push(lastScheduleOfDay);
+            violationDetails.set(lastScheduleOfDay.id, { actualHours: timeBetween });
+          }
         }
       }
     }
@@ -725,31 +820,46 @@ export function RosterPatternsClient() {
     existingShifts: WorkSchedule[],
     incomingShifts: WorkSchedule[],
     overflowFromPrevious: WorkSchedule[] = [],
-    nextDayShifts: WorkSchedule[] = []
-  ) => {
+    nextDayShifts: WorkSchedule[] = [],
+    allowOvernightWrap: boolean = false
+  ): { blockMessage: string | null; warningMessage: string | null } => {
     if (incomingShifts.length > 1) {
-      return `Cannot add ${incomingShifts[0]?.shift_id || 'shift'}: cannot add multiple shifts at once`;
+      return {
+        blockMessage: `Cannot add ${incomingShifts[0]?.shift_id || 'shift'}: cannot add multiple shifts at once`,
+        warningMessage: null,
+      };
     }
 
     const incoming = incomingShifts[0];
-    if (!incoming) return null;
+    if (!incoming) {
+      return { blockMessage: null, warningMessage: null };
+    }
 
     // Check if trying to add a full schedule when one already exists
     const incomingIsFullSchedule = !shiftSpansMidnight(incoming);
     if (incomingIsFullSchedule && countFullSchedules(existingShifts) >= 1) {
-      return `Cannot add ${incoming.shift_id}: only 1 full schedule allowed per day`;
+      return {
+        blockMessage: `Cannot add ${incoming.shift_id}: only 1 full schedule allowed per day`,
+        warningMessage: null,
+      };
     }
 
     // Check for actual time overlaps (not just multiple shifts)
     for (const existing of existingShifts) {
       if (shiftsOverlap(incoming, existing)) {
-        return `Cannot add ${incoming.shift_id}: overlaps with ${existing.shift_id}`;
+        return {
+          blockMessage: `Cannot add ${incoming.shift_id}: overlaps with ${existing.shift_id}`,
+          warningMessage: null,
+        };
       }
     }
 
     for (const overflow of overflowFromPrevious) {
       if (shiftsOverlap(incoming, overflow, true)) {
-        return `Cannot add ${incoming.shift_id}: overlaps with overnight shift from previous day (${overflow.shift_id})`;
+        return {
+          blockMessage: `Cannot add ${incoming.shift_id}: overlaps with overnight shift from previous day (${overflow.shift_id})`,
+          warningMessage: null,
+        };
       }
     }
 
@@ -757,18 +867,35 @@ export function RosterPatternsClient() {
     if (shiftSpansMidnight(incoming) && nextDayShifts.length > 0) {
       for (const nextShift of nextDayShifts) {
         if (shiftsOverlap(nextShift, incoming, true)) {
-          return `Cannot add ${incoming.shift_id}: its overnight portion would overlap with ${nextShift.shift_id} on the next day`;
+          if (allowOvernightWrap) {
+            return {
+              blockMessage: null,
+              warningMessage: `Allowing ${incoming.shift_id}: overnight portion overlaps with ${nextShift.shift_id} on the next day but ends before 06:00`,
+            };
+          }
+          return {
+            blockMessage: `Cannot add ${incoming.shift_id}: its overnight portion would overlap with ${nextShift.shift_id} on the next day`,
+            warningMessage: null,
+          };
         }
       }
     }
 
-    return null;
+    return { blockMessage: null, warningMessage: null };
   };
 
   const getOrderedDays = () => {
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     const startIndex = days.indexOf(startDay);
     return [...days.slice(startIndex), ...days.slice(0, startIndex)];
+  };
+
+  const shouldCheckNextDay = (row: PatternRow, dayName: string): boolean => {
+    if (endDateType !== 'specify') return true;
+    const orderedDays = getOrderedDays();
+    const isLastDayInOrder = dayName === orderedDays[orderedDays.length - 1];
+    const isLastRow = row.number === patternRows.length;
+    return !(isLastRow && isLastDayInOrder);
   };
 
   // Derive weekday name from an ISO date string (YYYY-MM-DD)
@@ -823,6 +950,24 @@ export function RosterPatternsClient() {
     const allDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     const currentIndex = allDays.indexOf(dayName);
     return allDays[(currentIndex - 1 + 7) % 7];
+  };
+
+  const getOverflowEndMinutes = (schedule: WorkSchedule): number => {
+    const timeframes = schedule.work_schedule_timeframes || [];
+    if (timeframes.length === 0) return 0;
+    const lastFrame = timeframes[timeframes.length - 1];
+    const [endH, endM] = lastFrame.end_time.split(':').map(Number);
+    return endH * 60 + endM;
+  };
+
+  const shouldAllowLastCellOvernightOverlap = (row: PatternRow, dayName: string, schedule: WorkSchedule): boolean => {
+    if (endDateType !== 'continuous') return false;
+    if (!shiftSpansMidnight(schedule)) return false;
+    const orderedDays = getOrderedDays();
+    const isLastDayInOrder = dayName === orderedDays[orderedDays.length - 1];
+    const isLastRow = row.number === patternRows.length;
+    if (!isLastRow || !isLastDayInOrder) return false;
+    return getOverflowEndMinutes(schedule) < 360; // allow overlaps only if overflow ends before 06:00
   };
 
   const formatScheduleDisplay = (schedule: WorkSchedule): string => {
@@ -905,6 +1050,41 @@ export function RosterPatternsClient() {
     return (s.shift_type ?? "").trim() === splitLabel;
   };
 
+  /**
+   * Format a date for display based on pattern type
+   * - For continuous patterns: "Week X: DayName"
+   * - For specify dates patterns: "YYYY-MM-DD (DayName)"
+   */
+  const formatDateForDisplay = (date: Date, isPatternDate: boolean = false): string => {
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+    
+    if (endDateType === 'continuous') {
+      if (isPatternDate) {
+        // Calculate week number from the start date
+        if (!startDate) return `${dayName}`;
+        
+        const patternStart = new Date(startDate);
+        const dateCopy = new Date(date);
+        
+        // Calculate days difference
+        const diffTime = Math.abs(dateCopy.getTime() - patternStart.getTime());
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        const weekNum = Math.floor(diffDays / 7) + 1;
+        
+        return `Week ${weekNum}: ${dayName}`;
+      }
+      return dayName;
+    } else {
+      // Specify dates mode
+      const dateStr = date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: '2-digit', 
+        day: '2-digit' 
+      });
+      return `${dateStr} (${dayName})`;
+    }
+  };
+
   const sortSchedules = (schedules: WorkSchedule[]): WorkSchedule[] => {
     return [...schedules].sort((a, b) => {
       const aFrames = a.work_schedule_timeframes?.slice().sort((x, y) => x.frame_order - y.frame_order) || [];
@@ -924,58 +1104,32 @@ export function RosterPatternsClient() {
     });
   };
 
-  const periodColors: string[] = [
-    "bg-blue-900",
-    "bg-yellow-600",
-    "bg-gray-300",
-    "bg-orange-600",
-    "bg-violet-600",
-    "bg-emerald-600",
-    "bg-rose-500",
-    "bg-cyan-600",
-    "bg-amber-500",
-    "bg-slate-500",
-  ];
-
-  const periodBgLight: string[] = [
-    "bg-blue-900/10",
-    "bg-yellow-200/70",
-    "bg-white",
-    "bg-orange-200/70",
-    "bg-violet-100",
-    "bg-emerald-100",
-    "bg-rose-100",
-    "bg-cyan-100",
-    "bg-amber-100",
-    "bg-slate-100",
-  ];
-
-  const periodBorders: string[] = [
-    "border-blue-200",
-    "border-yellow-300",
-    "border-gray-200",
-    "border-orange-300",
-    "border-violet-200",
-    "border-emerald-200",
-    "border-rose-200",
-    "border-cyan-200",
-    "border-amber-200",
-    "border-slate-200",
-  ];
-
   const getShiftPeriod = (schedule: WorkSchedule) => {
     return getShiftPeriodId(schedule.work_schedule_timeframes || []);
   };
 
+  /** Classes for shift tile (border, etc.). Use with getShiftTileStyle for saved period colors. */
   const getShiftTileClasses = (schedule: WorkSchedule) => {
     if (isSplitShift(schedule)) {
       return "bg-black text-white border-black";
     }
+    return "border";
+  };
+
+  /** Inline style for shift tile from day period colour (sidebar and table cells). Returns null for split shifts. */
+  const getShiftTileStyle = (schedule: WorkSchedule): React.CSSProperties | undefined => {
+    if (isSplitShift(schedule)) return undefined;
     const periods = getActiveDayPeriods();
     const periodId = getShiftPeriodId(schedule.work_schedule_timeframes || []);
     const periodIndex = Math.max(0, periods.findIndex((p) => p.id === periodId));
-    const colorIndex = periodIndex % periodBgLight.length;
-    return `${periodBgLight[colorIndex]} ${periodBorders[colorIndex]}`;
+    const period = periods[periodIndex];
+    const cardStyle = getPeriodCardStyle(period, periodIndex);
+    const textColor = getPeriodTileTextColor(period, periodIndex);
+    return {
+      backgroundColor: cardStyle.backgroundColor,
+      borderColor: cardStyle.borderColor,
+      color: textColor,
+    };
   };
 
   // Helper function to check if two shifts overlap
@@ -1007,6 +1161,16 @@ export function RosterPatternsClient() {
         const spans1 = end1 < start1; // crosses midnight
         const spans2 = end2 < start2; // crosses midnight
         
+        // When comparing incoming shift to overflow from previous day: only the current-day
+        // portion of the incoming shift can overlap. Overflow on current day is [0, end2].
+        // Incoming on current day: if it spans midnight, only [start1, 1440]; else [start1, end1].
+        if (isSchedule2Overflow && spans1) {
+          const incomingCurrentDayEnd = 1440;
+          const overlap = start1 < end2 && incomingCurrentDayEnd > 0;
+          if (overlap) return true;
+          continue;
+        }
+        
         if (spans1 && spans2) {
           // Both span midnight: no overlap only if one ends before the other starts
           if (!(end1 < start2 && end2 < start1)) {
@@ -1035,6 +1199,50 @@ export function RosterPatternsClient() {
     }
     
     return false;
+  };
+
+  const getDayIntervals = (schedule: WorkSchedule, overflowOnly: boolean): Array<{ start: number; end: number }> => {
+    const intervals: Array<{ start: number; end: number }> = [];
+    const timeframes = schedule.work_schedule_timeframes || [];
+
+    timeframes.forEach((tf) => {
+      const start = minutesFromMidnight(tf.start_time);
+      const end = minutesFromMidnight(tf.end_time);
+      const spansMidnight = end < start;
+
+      if (overflowOnly) {
+        if (spansMidnight) {
+          intervals.push({ start: 0, end });
+        }
+        return;
+      }
+
+      if (spansMidnight) {
+        intervals.push({ start, end: 1440 });
+      } else {
+        intervals.push({ start, end });
+      }
+    });
+
+    return intervals;
+  };
+
+  const getOverlapHours = (schedule1: WorkSchedule, schedule2: WorkSchedule, isSchedule2Overflow: boolean): number => {
+    const intervals1 = getDayIntervals(schedule1, false);
+    const intervals2 = getDayIntervals(schedule2, isSchedule2Overflow);
+    let overlapMinutes = 0;
+
+    intervals1.forEach((i1) => {
+      intervals2.forEach((i2) => {
+        const start = Math.max(i1.start, i2.start);
+        const end = Math.min(i1.end, i2.end);
+        if (end > start) {
+          overlapMinutes += end - start;
+        }
+      });
+    });
+
+    return overlapMinutes / 60;
   };
 
   // Calculate the date for a specific cell (weekNumber, dayName)
@@ -1085,11 +1293,18 @@ export function RosterPatternsClient() {
           }
 
           // If dropped shift spans midnight, its overflow would spill into next day: check overlap with next day's shifts
-          if (shiftSpansMidnight(draggedSchedule)) {
+          const allowOvernightWrap = shouldAllowLastCellOvernightOverlap(row, dayName, draggedSchedule);
+          if (shiftSpansMidnight(draggedSchedule) && shouldCheckNextDay(row, dayName)) {
             const nextDayName = getNextDay(dayName);
-            const nextDayShifts = getCellSchedules(rowId, nextDayName);
+            const nextDayShifts = getAdjacentDaySchedules(row, dayName, 'next');
             for (const nextShift of nextDayShifts) {
               if (shiftsOverlap(nextShift, draggedSchedule, true)) {
+                if (allowOvernightWrap) {
+                  showOverlapWarning(
+                    `Allowing ${draggedSchedule.shift_id}: overnight portion overlaps with ${nextShift.shift_id} on ${nextDayName} but ends before 06:00`
+                  );
+                  break;
+                }
                 const message = `Cannot add ${draggedSchedule.shift_id}: its overnight portion would overlap with ${nextShift.shift_id} on ${nextDayName}`;
                 showOverlapWarning(message);
                 return row; // Don't add the shift
@@ -1424,16 +1639,357 @@ export function RosterPatternsClient() {
     const dayIndex = orderedDays.indexOf(dayName);
     if (dayIndex === -1) return '';
     
-    // Calculate total days offset: (weekNumber - 1) * 7 + dayIndex
+    // Align startDate with the pattern's startDay
+    const baseDate = new Date(startDate + 'T00:00:00');
+    const baseDayOfWeek = baseDate.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+    
+    // Get the target day of week from startDay
+    const dayMap: Record<string, number> = {
+      'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
+      'Thursday': 4, 'Friday': 5, 'Saturday': 6
+    };
+    const targetDayOfWeek = dayMap[startDay] ?? 1; // Default to Monday
+    
+    // Calculate adjustment: how many days to go back to reach the pattern's start day
+    let adjustment = baseDayOfWeek - targetDayOfWeek;
+    if (adjustment < 0) adjustment += 7; // Handle week wrap
+    
+    // Adjust baseDate to the pattern's start day
+    baseDate.setDate(baseDate.getDate() - adjustment);
+    
+    // Now apply the offset for the specific week and day
     const daysOffset = (weekNumber - 1) * 7 + dayIndex;
-    const date = new Date(startDate + 'T00:00:00');
-    date.setDate(date.getDate() + daysOffset);
+    baseDate.setDate(baseDate.getDate() + daysOffset);
     
     // Format as DD/MM/YY
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = String(date.getFullYear()).slice(-2);
+    const day = String(baseDate.getDate()).padStart(2, '0');
+    const month = String(baseDate.getMonth() + 1).padStart(2, '0');
+    const year = String(baseDate.getFullYear()).slice(-2);
     return `${day}/${month}/${year}`;
+  };
+
+  const getPatternBaseDate = (): Date => {
+    const base = startDate
+      ? new Date(startDate + 'T00:00:00')
+      : new Date('2024-01-01T00:00:00');
+    base.setHours(0, 0, 0, 0);
+
+    const dayMap: Record<string, number> = {
+      'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
+      'Thursday': 4, 'Friday': 5, 'Saturday': 6
+    };
+    const targetDayOfWeek = dayMap[startDay] ?? 1;
+
+    let adjustment = base.getDay() - targetDayOfWeek;
+    if (adjustment < 0) adjustment += 7;
+    base.setDate(base.getDate() - adjustment);
+
+    return base;
+  };
+
+  const getCellDateObject = (weekNumber: number, dayName: string): Date => {
+    const orderedDays = getOrderedDays();
+    const dayIndex = orderedDays.indexOf(dayName);
+    const safeDayIndex = Math.max(dayIndex, 0);
+
+    const baseDate = getPatternBaseDate();
+    const daysOffset = (weekNumber - 1) * 7 + safeDayIndex;
+    baseDate.setDate(baseDate.getDate() + daysOffset);
+    baseDate.setHours(0, 0, 0, 0);
+    return baseDate;
+  };
+
+  const workScheduleToShift = (schedule: WorkSchedule, selectedDate: Date, overrideId?: string): Shift => {
+    const timeframes = schedule.work_schedule_timeframes?.slice().sort(
+      (a, b) => a.frame_order - b.frame_order
+    ) || [];
+
+    if (timeframes.length === 0) {
+      return {
+        id: schedule.id,
+        startDateTime: selectedDate,
+        endDateTime: selectedDate,
+      };
+    }
+
+    const firstFrame = timeframes[0];
+    const lastFrame = timeframes[timeframes.length - 1];
+
+    const startDateTime = new Date(selectedDate);
+    const [startH, startM] = firstFrame.start_time.split(':').map(Number);
+    startDateTime.setHours(startH, startM, 0, 0);
+
+    const endDateTime = new Date(selectedDate);
+    const [endH, endM] = lastFrame.end_time.split(':').map(Number);
+    endDateTime.setHours(endH, endM, 0, 0);
+
+    if (endDateTime.getTime() <= startDateTime.getTime()) {
+      endDateTime.setDate(endDateTime.getDate() + 1);
+    }
+
+    return {
+      id: overrideId || schedule.id,
+      startDateTime,
+      endDateTime,
+    };
+  };
+
+  const getAllocationModeLabel = (mode: typeof allocationMode): string => {
+    switch (mode) {
+      case 'START_DAY':
+        return 'Start Day';
+      case 'MAJORITY_HOURS':
+        return 'Majority Hours';
+      case 'FIXED_ROSTER_DAY':
+        return 'Fixed Roster Day';
+      case 'SPLIT_BY_DAY':
+        return 'Split by Day';
+      case 'WEEKLY_BALANCING':
+        return 'Weekly Balancing';
+      default:
+        return 'New Settings';
+    }
+  };
+
+  const buildAllShifts = (): Shift[] => {
+    const shifts: Shift[] = [];
+    const orderedDays = getOrderedDays();
+
+    patternRows.forEach((row) => {
+      orderedDays.forEach((dayName) => {
+        const dayKey = dayName.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
+        const dayValue = row[dayKey];
+        const schedules = Array.isArray(dayValue) ? dayValue : [];
+        const cellDate = getCellDateObject(row.number, dayName);
+
+        // Get overflow from previous day (shifts that span midnight) - this is what the grid displays
+        // Use week order: first day of week gets overflow from previous row's last day (or last row's last day for row 1)
+        const orderedDays = getOrderedDays();
+        const isFirstDayInOrder = dayName === orderedDays[0];
+        let previousDaySchedules: WorkSchedule[] = [];
+        if (isFirstDayInOrder && patternRows.length > 0) {
+          if (row.number === 1) {
+            const lastRow = patternRows[patternRows.length - 1];
+            const lastDayKey = orderedDays[orderedDays.length - 1].toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
+            const lastRowLastDayValue = lastRow[lastDayKey];
+            previousDaySchedules = Array.isArray(lastRowLastDayValue) ? lastRowLastDayValue : [];
+          } else {
+            const prevRowIndex = row.number - 2;
+            if (prevRowIndex >= 0) {
+              const prevRow = patternRows[prevRowIndex];
+              const lastDayKey = orderedDays[orderedDays.length - 1].toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
+              const prevRowLastDayValue = prevRow[lastDayKey];
+              previousDaySchedules = Array.isArray(prevRowLastDayValue) ? prevRowLastDayValue : [];
+            }
+          }
+        } else {
+          const previousDay = orderedDays[orderedDays.indexOf(dayName) - 1];
+          const previousDayKey = previousDay.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
+          const prevDayValue = row[previousDayKey];
+          previousDaySchedules = Array.isArray(prevDayValue) ? prevDayValue : [];
+        }
+        
+        // Get overflow shifts that span midnight - these are for display only
+        // Don't add them as shifts here; they're already processed when added on their origin day
+        const overflowShifts = previousDaySchedules.filter(s => shiftSpansMidnight(s));
+        
+        // Only add local schedules (not overflow) - overflow shifts are added when processing the day they originate from
+        const localSchedules = schedules.sort((a, b) => {
+          const aFirstTimeframe = a.work_schedule_timeframes?.[0];
+          const bFirstTimeframe = b.work_schedule_timeframes?.[0];
+          
+          if (aFirstTimeframe && bFirstTimeframe) {
+            const aStartParts = aFirstTimeframe.start_time.split(':').map(Number);
+            const bStartParts = bFirstTimeframe.start_time.split(':').map(Number);
+            const aStartMinutes = aStartParts[0] * 60 + aStartParts[1];
+            const bStartMinutes = bStartParts[0] * 60 + bStartParts[1];
+            
+            if (aStartMinutes !== bStartMinutes) {
+              return aStartMinutes - bStartMinutes;
+            }
+          }
+          
+          const aSpans = shiftSpansMidnight(a);
+          const bSpans = shiftSpansMidnight(b);
+          if (aSpans && !bSpans) return 1;
+          if (!aSpans && bSpans) return -1;
+          return 0;
+        });
+
+        localSchedules.forEach((schedule, idx) => {
+          const shiftId = `${schedule.id}::${row.number}::${dayName}::${idx}`;
+          const shift = workScheduleToShift(schedule, cellDate, shiftId);
+          shifts.push(shift);
+        });
+      });
+    });
+
+    return shifts;
+  };
+
+  const buildSimulationData = () => {
+    const shifts = buildAllShifts();
+    const currentAllocations: Record<string, string | string[]> = {};
+
+    // Provide defaults for WEEKLY_BALANCING if params are missing
+    let savedParams = savedAllocationParams || {};
+    if (savedAllocationMode === 'WEEKLY_BALANCING' && Object.keys(savedParams).length === 0) {
+      savedParams = {
+        weekStartDay: 'MON',
+        weeklyOrdinaryHoursThresholdMinutes: 38 * 60,
+        balancingStrategy: 'FILL_CURRENT_WEEK_FIRST',
+        tieBreakerRule: 'PREFER_START_DAY',
+        payPeriodDefinitionType: 'INHERIT_PAYROLL_CALENDAR',
+      };
+    }
+
+    shifts.forEach((shift) => {
+      const currentResult = computeAllocationDate(shift, {
+        nightShiftAllocationMode: savedAllocationMode,
+        nightShiftAllocationParams: savedParams,
+      });
+
+      if (Array.isArray(currentResult.allocationDate)) {
+        currentAllocations[shift.id] = currentResult.allocationDate.map((d) =>
+          getLocalDateString(d)
+        );
+      } else if (currentResult.allocationDate) {
+        currentAllocations[shift.id] = getLocalDateString(currentResult.allocationDate);
+      } else {
+        currentAllocations[shift.id] = 'UNALLOCATED';
+      }
+    });
+
+    return { shifts, currentAllocations };
+  };
+
+  const addMinutesToBucket = (bucket: Record<string, number>, date: Date, minutes: number) => {
+    const key = getLocalDateString(date);
+    bucket[key] = (bucket[key] || 0) + minutes;
+  };
+
+  const buildPayrollPreview = (mode: typeof allocationMode, useParams?: Record<string, unknown>) => {
+    const shifts = buildAllShifts();
+    
+    const totals: Record<string, number> = {};
+    const dateToWeekMap: Record<string, number> = {};
+    const shiftsByDate: Record<string, Array<{ shiftId: string; minutes: number; schedule: WorkSchedule }>> = {};
+
+    // Provide defaults for WEEKLY_BALANCING if params are missing
+    let params = useParams || {};
+    if (mode === 'WEEKLY_BALANCING' && Object.keys(params).length === 0) {
+      params = {
+        weekStartDay: 'MON',
+        weeklyOrdinaryHoursThresholdMinutes: 38 * 60, // 38 hours = 2280 minutes
+        balancingStrategy: 'FILL_CURRENT_WEEK_FIRST',
+        tieBreakerRule: 'PREFER_START_DAY',
+        payPeriodDefinitionType: 'INHERIT_PAYROLL_CALENDAR',
+      };
+    }
+
+    shifts.forEach((shift) => {
+      // Extract week number and schedule from shift ID (format: uuid::weekNumber::dayName::idx)
+      const shiftIdParts = shift.id.split('::');
+      const weekNumStr = shiftIdParts[1];
+      const weekNum = parseInt(weekNumStr, 10);
+      const dayNameFromId = shiftIdParts[2];
+      
+      // Find the schedule from patternRows
+      let sourceSchedule: WorkSchedule | null = null;
+      patternRows.forEach((row) => {
+        getOrderedDays().forEach((day) => {
+          const schedules = getCellSchedules(row.id, day);
+          schedules.forEach((sched) => {
+            if (sched.id === shiftIdParts[0]) {
+              sourceSchedule = sched;
+            }
+          });
+        });
+      });
+      
+      const result = computeAllocationDate(shift, {
+        nightShiftAllocationMode: mode,
+        nightShiftAllocationParams: params,
+      });
+
+      const durationMinutes = Math.max(
+        0,
+        Math.round((shift.endDateTime.getTime() - shift.startDateTime.getTime()) / 60000)
+      );
+
+      if (Array.isArray(result.daySegments) && result.daySegments.length > 0) {
+        result.daySegments.forEach((segment) => {
+          const dateKey = getLocalDateString(segment.date);
+          addMinutesToBucket(totals, segment.date, segment.minutes);
+          if (endDateType === 'continuous' && !isNaN(weekNum)) {
+            dateToWeekMap[dateKey] = weekNum;
+          }
+          if (!shiftsByDate[dateKey]) shiftsByDate[dateKey] = [];
+          shiftsByDate[dateKey].push({
+            shiftId: sourceSchedule?.shift_id || 'Unknown',
+            minutes: segment.minutes,
+            schedule: sourceSchedule || {} as WorkSchedule
+          });
+        });
+        return;
+      }
+
+      if (Array.isArray(result.allocationDate)) {
+        const perDay = durationMinutes / Math.max(1, result.allocationDate.length);
+        result.allocationDate.forEach((date) => {
+          const dateKey = getLocalDateString(date);
+          addMinutesToBucket(totals, date, perDay);
+          if (endDateType === 'continuous' && !isNaN(weekNum)) {
+            dateToWeekMap[dateKey] = weekNum;
+          }
+          if (!shiftsByDate[dateKey]) shiftsByDate[dateKey] = [];
+          shiftsByDate[dateKey].push({
+            shiftId: sourceSchedule?.shift_id || 'Unknown',
+            minutes: perDay,
+            schedule: sourceSchedule || {} as WorkSchedule
+          });
+        });
+        return;
+      }
+
+      if (result.allocationDate) {
+        const dateKey = getLocalDateString(result.allocationDate);
+        addMinutesToBucket(totals, result.allocationDate, durationMinutes);
+        if (endDateType === 'continuous' && !isNaN(weekNum)) {
+          dateToWeekMap[dateKey] = weekNum;
+        }
+        if (!shiftsByDate[dateKey]) shiftsByDate[dateKey] = [];
+        shiftsByDate[dateKey].push({
+          shiftId: sourceSchedule?.shift_id || 'Unknown',
+          minutes: durationMinutes,
+          schedule: sourceSchedule || {} as WorkSchedule
+        });
+      }
+    });
+
+    return Object.entries(totals)
+      .map(([date, minutes]) => ({ 
+        date, 
+        minutes,
+        weekNumber: dateToWeekMap[date],
+        shifts: shiftsByDate[date] || []
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  };
+
+  const formatMinutes = (minutes: number) => {
+    const rounded = Math.round(minutes);
+    const hours = Math.floor(rounded / 60);
+    const mins = rounded % 60;
+    return `${hours}h ${String(mins).padStart(2, '0')}m`;
+  };
+
+  // Get date string in LOCAL timezone (not UTC) to avoid timezone shift bugs
+  const getLocalDateString = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   // Keep endDate in sync when using specific dates
@@ -1467,6 +2023,8 @@ export function RosterPatternsClient() {
         weeks_pattern: weeksPattern,
         start_pattern_week: startPatternWeek,
         start_day: startDay,
+        night_shift_allocation_mode: allocationMode,
+        night_shift_allocation_params: {},
         pattern_rows: patternRows as unknown as Json,
         ...(tenantId ? { tenant_id: tenantId } : {}),
       };
@@ -1503,6 +2061,12 @@ export function RosterPatternsClient() {
     setWeeksPattern(pattern.weeks_pattern);
     setStartPatternWeek(pattern.start_pattern_week);
     setStartDay(pattern.start_day || 'Monday');
+    const mode = pattern.night_shift_allocation_mode || 'MAJORITY_HOURS';
+    const params = pattern.night_shift_allocation_params || {};
+    setAllocationMode(mode);
+    setSavedAllocationMode(mode);
+    setAllocationParams(params);
+    setSavedAllocationParams(params);
     
     // Ensure pattern rows have arrays for each day (database might return non-arrays)
     const normalizedRows = (pattern.pattern_rows || []).map(row => ({
@@ -1528,6 +2092,7 @@ export function RosterPatternsClient() {
       const { error } = await supabase.from('roster_patterns').delete().eq('id', id);
       if (error) throw error;
       await loadSavedPatterns();
+      setSavedAllocationMode(allocationMode);
     } catch (error) {
       console.error('Error deleting pattern:', error);
       alert('Failed to delete pattern.');
@@ -1573,6 +2138,8 @@ export function RosterPatternsClient() {
         weeks_pattern: copySourcePattern.weeks_pattern,
         start_pattern_week: copySourcePattern.start_pattern_week,
         start_day: copySourcePattern.start_day,
+        night_shift_allocation_mode: copySourcePattern.night_shift_allocation_mode || 'MAJORITY_HOURS',
+        night_shift_allocation_params: copySourcePattern.night_shift_allocation_params || {},
         pattern_rows: copySourcePattern.pattern_rows as unknown as Json,
         tenant_id: tenantId,
       };
@@ -1630,6 +2197,23 @@ export function RosterPatternsClient() {
   };
 
   const filteredSchedules = getFilteredSchedules();
+  
+  // Provide defaults for WEEKLY_BALANCING if params are missing
+  let allocationParamsForSettings = allocationParams || {};
+  if (allocationMode === 'WEEKLY_BALANCING' && Object.keys(allocationParamsForSettings).length === 0) {
+    allocationParamsForSettings = {
+      weekStartDay: 'MON',
+      weeklyOrdinaryHoursThresholdMinutes: 38 * 60,
+      balancingStrategy: 'FILL_CURRENT_WEEK_FIRST',
+      tieBreakerRule: 'PREFER_START_DAY',
+      payPeriodDefinitionType: 'INHERIT_PAYROLL_CALENDAR',
+    };
+  }
+
+  const allocationSettings: RosterPatternSettings = {
+    nightShiftAllocationMode: allocationMode,
+    nightShiftAllocationParams: allocationParamsForSettings,
+  };
 
   return (
     <>
@@ -1814,6 +2398,10 @@ export function RosterPatternsClient() {
                 setWeeksPattern('1');
                 setStartPatternWeek('1');
                 setStartDay('Monday');
+                setAllocationMode('MAJORITY_HOURS');
+                setSavedAllocationMode('MAJORITY_HOURS');
+                setAllocationParams({});
+                setSavedAllocationParams({});
                 setPatternRows([{
                   id: '1',
                   number: 1,
@@ -1898,7 +2486,7 @@ export function RosterPatternsClient() {
             <Alert className="mb-6 bg-blue-50 border-blue-200">
               <Info className="h-4 w-4 text-blue-600" />
               <div className="ml-3 text-sm text-blue-800">
-                Drag the Work schedules from the list on the right and drop them to a day cell in the pattern. If you would like to add more Work schedules, please go to <a href="/admin/work-schedule" className="font-semibold underline hover:text-blue-900">this page</a>.
+                Drag the Work Schedule Templates from the list on the right and drop them to a day cell in the pattern. If you would like to add more Work Schedule Templates, please go to <a href="/admin/work-schedule" className="font-semibold underline hover:text-blue-900">this page</a>.
               </div>
             </Alert>
             {overlapError && (
@@ -1954,6 +2542,29 @@ export function RosterPatternsClient() {
                       <option value="Sunday">Sunday</option>
                     </select>
                   </div>
+                </div>
+
+                {/* Allocation Mode Section */}
+                <div className="mb-6">
+                  <Label htmlFor="allocationMode" className="text-base font-semibold mb-2">
+                    Night Shift Allocation Mode
+                  </Label>
+                  <select
+                    id="allocationMode"
+                    value={allocationMode}
+                    onChange={(e) => setAllocationMode(e.target.value as any)}
+                    className="w-full h-10 px-3 border-2 border-gray-900 rounded-md"
+                    required
+                  >
+                    <option value="MAJORITY_HOURS">Majority Hours - Allocate to day with most hours</option>
+                    <option value="START_DAY">Start Day - Allocate to shift start date</option>
+                    <option value="SPLIT_BY_DAY">Split by Day - Allocate one per day crossed</option>
+                    <option value="FIXED_ROSTER_DAY">Fixed Roster Day - Allocate to specific day</option>
+                    <option value="WEEKLY_BALANCING">Weekly Balancing - Distribute evenly across week</option>
+                  </select>
+                  <p className="text-xs text-gray-600 mt-2">
+                    Controls how cross-midnight shifts are allocated to days for payroll and reporting.
+                  </p>
                 </div>
 
                 {/* Shift Dates Section */}
@@ -2105,36 +2716,39 @@ export function RosterPatternsClient() {
                             const isLastDay = day === 'Sunday';
                             const isLastCell = isLastRow && isLastDay;
                             
-                            // Check if this is the first cell of the pattern (first row, Monday)
+                            // Check if this is the first cell of the pattern (first row, first day in week order)
                             const isFirstRow = row.number === 1;
-                            const isFirstDay = day === 'Monday';
-                            const isFirstCell = isFirstRow && isFirstDay;
+                            const orderedDaysForCell = getOrderedDays();
+                            const isFirstDayInWeekOrder = day === orderedDaysForCell[0];
+                            const isFirstCell = isFirstRow && isFirstDayInWeekOrder;
                             
                             // Get previous day's schedules to check for overflow into current day
-                            let previousDay = getPreviousDay(day);
-                            let previousDayKey = previousDay.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
+                            // When week start is e.g. Wednesday, "previous" for Wednesday = Tuesday of previous/last row
+                            let previousDayKey: keyof Omit<PatternRow, 'id' | 'number'>;
                             let previousDaySchedules: WorkSchedule[] = [];
                             
-                            // Check if previous day has overnight shifts
-                            // If current day is Monday, check if previous Sunday (which could be in same row or previous row) has overnight shift
-                            if (day === 'Monday' && patternRows.length > 0) {
-                              // For specify dates, do not show overflow before the first cell in range
+                            if (isFirstDayInWeekOrder && patternRows.length > 0) {
                               if (endDateType === 'specify' && isFirstCell) {
                                 previousDaySchedules = [];
                               } else if (isFirstCell) {
                                 const lastRow = patternRows[patternRows.length - 1];
-                                const lastRowSundayValue = lastRow.sunday;
-                                previousDaySchedules = Array.isArray(lastRowSundayValue) ? lastRowSundayValue : [];
+                                const lastDayInOrder = orderedDaysForCell[orderedDaysForCell.length - 1];
+                                previousDayKey = lastDayInOrder.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
+                                const lastRowValue = lastRow[previousDayKey];
+                                previousDaySchedules = Array.isArray(lastRowValue) ? lastRowValue : [];
                               } else {
-                                // For other Mondays, check from the previous row's Sunday
-                                const prevRowIndex = row.number - 2; // row.number is 1-indexed
+                                const prevRowIndex = row.number - 2;
                                 if (prevRowIndex >= 0) {
                                   const prevRow = patternRows[prevRowIndex];
-                                  const prevRowSundayValue = prevRow.sunday;
-                                  previousDaySchedules = Array.isArray(prevRowSundayValue) ? prevRowSundayValue : [];
+                                  const lastDayInOrder = orderedDaysForCell[orderedDaysForCell.length - 1];
+                                  previousDayKey = lastDayInOrder.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
+                                  const prevRowValue = prevRow[previousDayKey];
+                                  previousDaySchedules = Array.isArray(prevRowValue) ? prevRowValue : [];
                                 }
                               }
                             } else {
+                              const prevDayName = orderedDaysForCell[orderedDaysForCell.indexOf(day) - 1];
+                              previousDayKey = prevDayName.toLowerCase() as keyof Omit<PatternRow, 'id' | 'number'>;
                               const prevDayValue = row[previousDayKey];
                               previousDaySchedules = Array.isArray(prevDayValue) ? prevDayValue : [];
                             }
@@ -2246,8 +2860,13 @@ export function RosterPatternsClient() {
                                 onMouseLeave={() => setHoverEdge(null)}
                                 onClick={(e) => {
                                   if (!isDraggingSelection && multiSelect.length === 0) {
+                                    const cellDate = getCellDateObject(row.number, day);
+                                    setSelectedCell({rowId: row.id, day});
+                                    setSelectedCellDetails({rowId: row.id, day, date: cellDate, weekNumber: row.number});
                                     if (schedules.length > 0) {
-                                      setSelectedCell({rowId: row.id, day});
+                                      setSelectedShiftDetails({ schedule: schedules[0], daySchedules: schedules });
+                                    } else {
+                                      setSelectedShiftDetails(null);
                                     }
                                   }
                                 }}
@@ -2301,18 +2920,19 @@ export function RosterPatternsClient() {
                                     return (
                                       <div 
                                         key={idx} 
-                                        className="relative"
+                                        className="relative group"
                                       >
                                         <div 
                                           className={`text-xs leading-tight break-words px-1 rounded border cursor-move ${getShiftTileClasses(schedule)}`}
+                                          style={getShiftTileStyle(schedule)}
                                           draggable
                                           onDragStart={() => {
                                             handleDragStart(schedule);
                                             setSelectedCell({rowId: row.id, day});
                                           }}
                                         >
-                                          <div className="font-bold text-blue-900">{schedule.shift_id}</div>
-                                          <div className="text-blue-700">
+                                          <div className={`font-bold ${!getShiftTileStyle(schedule) ? 'text-blue-900' : ''}`}>{schedule.shift_id}</div>
+                                          <div className={!getShiftTileStyle(schedule) ? 'text-blue-700' : ''}>
                                             {isLastCell && endDateType === 'specify' && shiftSpansMidnight(schedule) ? 
                                               formatScheduleDisplayTruncated(schedule, true) : 
                                               formatScheduleDisplay(schedule)
@@ -2325,20 +2945,98 @@ export function RosterPatternsClient() {
                                               <div className="text-xs text-orange-700 italic">↓ Overflow</div>
                                             )
                                           )}
+                                          {/* Enterprise feature buttons */}
+                                          <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity pt-1 border-t border-gray-300/50">
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const cellDate = getCellDateObject(row.number, day);
+                                                const shift = workScheduleToShift(schedule, cellDate);
+                                                setSelectedShiftForExplanation(shift);
+                                                setShowExplanation(true);
+                                              }}
+                                              className="flex-1 px-1.5 py-0.5 text-xs rounded bg-blue-100 hover:bg-blue-200 text-blue-700 font-medium transition-colors"
+                                              title="Why was this shift allocated?"
+                                            >
+                                              <Eye className="h-3 w-3 inline mr-0.5" />
+                                              Why
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSelectedShiftForSimulation(schedule);
+                                                setShowSimulation(true);
+                                                setSimulationLoading(true);
+                                                setSimulationError(null);
+
+                                                try {
+                                                  const { shifts, currentAllocations } = buildSimulationData();
+                                                  
+                                                  // Apply defaults for WEEKLY_BALANCING if needed
+                                                  let currentParams = savedAllocationParams || {};
+                                                  if (savedAllocationMode === 'WEEKLY_BALANCING' && Object.keys(currentParams).length === 0) {
+                                                    currentParams = {
+                                                      weekStartDay: 'MON',
+                                                      weeklyOrdinaryHoursThresholdMinutes: 38 * 60,
+                                                      balancingStrategy: 'FILL_CURRENT_WEEK_FIRST',
+                                                      tieBreakerRule: 'PREFER_START_DAY',
+                                                      payPeriodDefinitionType: 'INHERIT_PAYROLL_CALENDAR',
+                                                    };
+                                                  }
+                                                  
+                                                  let newParams = allocationParams || {};
+                                                  if (allocationMode === 'WEEKLY_BALANCING' && Object.keys(newParams).length === 0) {
+                                                    newParams = {
+                                                      weekStartDay: 'MON',
+                                                      weeklyOrdinaryHoursThresholdMinutes: 38 * 60,
+                                                      balancingStrategy: 'FILL_CURRENT_WEEK_FIRST',
+                                                      tieBreakerRule: 'PREFER_START_DAY',
+                                                      payPeriodDefinitionType: 'INHERIT_PAYROLL_CALENDAR',
+                                                    };
+                                                  }
+                                                  
+                                                  const currentSettings: RosterPatternSettings = {
+                                                    nightShiftAllocationMode: savedAllocationMode,
+                                                    nightShiftAllocationParams: currentParams,
+                                                  };
+                                                  const newSettings: RosterPatternSettings = {
+                                                    nightShiftAllocationMode: allocationMode,
+                                                    nightShiftAllocationParams: newParams,
+                                                  };
+
+                                                  const result = simulateAllocationImpact(
+                                                    shifts,
+                                                    currentSettings,
+                                                    newSettings,
+                                                    currentAllocations
+                                                  );
+                                                  setSimulationResult(result);
+                                                } catch (err) {
+                                                  setSimulationError(err instanceof Error ? err.message : 'Failed to run simulation');
+                                                } finally {
+                                                  setSimulationLoading(false);
+                                                }
+                                              }}
+                                              className="flex-1 px-1.5 py-0.5 text-xs rounded bg-purple-100 hover:bg-purple-200 text-purple-700 font-medium transition-colors"
+                                              title="Simulate allocation changes"
+                                            >
+                                              <Zap className="h-3 w-3 inline mr-0.5" />
+                                              Test
+                                            </button>
+                                          </div>
                                         </div>
                                         {hasViolation && (
                                           <div 
                                             className="absolute -top-2 -right-2 w-5 h-5 bg-red-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-red-700 transition-colors" 
-                                            title={violationDetails ? `Time between shifts is ${violationDetails.actualHours % 1 === 0 ? violationDetails.actualHours : violationDetails.actualHours.toFixed(1)} hours, but minimum allowed is ${minHoursBetweenShifts % 1 === 0 ? minHoursBetweenShifts : minHoursBetweenShifts.toFixed(1)} hours. Click for details.` : "Shift violation"}
+                                            title={violationDetails ? `${getViolationMessage(violationDetails.actualHours, minHoursBetweenShifts, false)} Click for details.` : "Shift violation"}
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               if (violationDetails) {
-                                                const actualHours = violationDetails.actualHours;
-                                                const displayActual = actualHours % 1 === 0 ? actualHours : actualHours.toFixed(1);
-                                                const displayMin = minHoursBetweenShifts % 1 === 0 ? minHoursBetweenShifts : minHoursBetweenShifts.toFixed(1);
                                                 setShiftViolationDialog({
                                                   show: true,
-                                                  message: `Time between shifts is ${displayActual} hours, but minimum allowed is ${displayMin} hours. You can change this value in Settings.`,
+                                                  message: getViolationMessage(violationDetails.actualHours, minHoursBetweenShifts, true),
                                                   shiftId: schedule.shift_id
                                                 });
                                               }
@@ -2417,12 +3115,213 @@ export function RosterPatternsClient() {
               </div>
             </form>
           </Card>
+          <div className="mt-6">
+            <ShiftDetailsPanel
+              selectedCell={selectedCellDetails}
+              selectedShift={selectedShiftDetails}
+              allocationSettings={allocationSettings}
+              isUnsaved={saving}
+              endDateType={endDateType}
+              formatDateForDisplay={formatDateForDisplay}
+              startDate={startDate}
+            />
+          </div>
+          <div className="mt-6">
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Payroll Preview</h3>
+                  <p className="text-sm text-gray-600">
+                    Compare allocation totals for saved vs current allocation mode.
+                  </p>
+                </div>
+              </div>
+              {(() => {
+                const currentPreview = buildPayrollPreview(savedAllocationMode, savedAllocationParams);
+                const newPreview = buildPayrollPreview(allocationMode, allocationParams);
+                const allDates = Array.from(new Set([
+                  ...currentPreview.map((item) => item.date),
+                  ...newPreview.map((item) => item.date),
+                ])).sort();
+
+                if (allDates.length === 0) {
+                  return (
+                    <div className="text-sm text-gray-600">Add shifts to see a payroll preview.</div>
+                  );
+                }
+
+                const currentMap = Object.fromEntries(currentPreview.map((item) => [item.date, item.minutes]));
+                const newMap = Object.fromEntries(newPreview.map((item) => [item.date, item.minutes]));
+                const weekNumberMap = Object.fromEntries(
+                  [...currentPreview, ...newPreview]
+                    .filter((item) => !!item.weekNumber)
+                    .map((item) => [item.date, item.weekNumber || 0])
+                );
+                const breakdownMap = Object.fromEntries(newPreview.map((item) => [item.date, item.shifts]));
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm border border-gray-200">
+                      <thead>
+                        <tr className="bg-gray-50">
+                          <th className="text-left p-2 border-b">Date</th>
+                          <th className="text-left p-2 border-b">Saved ({getAllocationModeLabel(savedAllocationMode)})</th>
+                          {allocationMode !== savedAllocationMode && (
+                            <>
+                              <th className="text-left p-2 border-b">Current ({getAllocationModeLabel(allocationMode)})</th>
+                              <th className="text-left p-2 border-b">Delta</th>
+                            </>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          // Group dates by week number
+                          const weekMap: Record<number, string[]> = {};
+                          allDates.forEach((dateStr) => {
+                            const weekNum = weekNumberMap[dateStr] || 0;
+                            if (!weekMap[weekNum]) {
+                              weekMap[weekNum] = [];
+                            }
+                            weekMap[weekNum].push(dateStr);
+                          });
+
+                          const weeks = Object.keys(weekMap)
+                            .map(Number)
+                            .sort((a, b) => a - b);
+
+                          // Calculate totals
+                          const totalCurrentMinutes = allDates.reduce((sum, d) => sum + (currentMap[d] || 0), 0);
+                          const totalNewMinutes = allDates.reduce((sum, d) => sum + (newMap[d] || 0), 0);
+                          const totalDelta = totalNewMinutes - totalCurrentMinutes;
+
+                          const weekRows = weeks.map((weekNum) => {
+                            const datesInWeek = weekMap[weekNum];
+                            const weekCurrentMinutes = datesInWeek.reduce((sum, d) => sum + (currentMap[d] || 0), 0);
+                            const weekNewMinutes = datesInWeek.reduce((sum, d) => sum + (newMap[d] || 0), 0);
+                            const weekDelta = weekNewMinutes - weekCurrentMinutes;
+                            const isExpanded = expandedPayrollRows.has(`week-${weekNum}`);
+
+                            return (
+                              <Fragment key={`week-${weekNum}`}>
+                                <tr className="border-t cursor-pointer hover:bg-gray-100 bg-gray-50 font-semibold">
+                                  <td 
+                                    className="p-2" 
+                                    onClick={() => {
+                                      const newSet = new Set(expandedPayrollRows);
+                                      if (isExpanded) {
+                                        newSet.delete(`week-${weekNum}`);
+                                      } else {
+                                        newSet.add(`week-${weekNum}`);
+                                      }
+                                      setExpandedPayrollRows(newSet);
+                                    }}
+                                  >
+                                    <span className="inline-block mr-2">{isExpanded ? '▼' : '▶'}</span>
+                                    Week {weekNum}
+                                  </td>
+                                  <td className="p-2">{formatMinutes(weekCurrentMinutes)}</td>
+                                  {allocationMode !== savedAllocationMode && (
+                                    <>
+                                      <td className="p-2">{formatMinutes(weekNewMinutes)}</td>
+                                      <td className="p-2">
+                                        {weekDelta === 0 ? 'No change' : `${weekDelta > 0 ? '+' : '-'}${formatMinutes(Math.abs(weekDelta))}`}
+                                      </td>
+                                    </>
+                                  )}
+                                </tr>
+
+                                {isExpanded && (() => {
+                                  // Sort dates in this week by roster day order
+                                  const orderedDays = getOrderedDays();
+                                  const sortedDatesInWeek = datesInWeek.sort((dateA, dateB) => {
+                                    const dateObjA = new Date(`${dateA}T00:00:00`);
+                                    const dateObjB = new Date(`${dateB}T00:00:00`);
+                                    const dayNameA = dateObjA.toLocaleDateString('en-US', { weekday: 'long' });
+                                    const dayNameB = dateObjB.toLocaleDateString('en-US', { weekday: 'long' });
+                                    return orderedDays.indexOf(dayNameA) - orderedDays.indexOf(dayNameB);
+                                  });
+                                  return sortedDatesInWeek;
+                                })().map((dateStr) => {
+                                  const dateObj = new Date(`${dateStr}T00:00:00`);
+                                  const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+                                  const formattedDate = endDateType === 'continuous'
+                                    ? dayName
+                                    : formatDateForDisplay(dateObj, true);
+                                  const currentMinutes = currentMap[dateStr] || 0;
+                                  const newMinutes = newMap[dateStr] || 0;
+                                  const delta = newMinutes - currentMinutes;
+                                  const shiftsForDate = breakdownMap[dateStr] || [];
+
+                                  return (
+                                    <Fragment key={dateStr}>
+                                      <tr className="border-t border-gray-200">
+                                        <td className="p-2 pl-6 text-sm">{formattedDate}</td>
+                                        <td className="p-2 text-sm">{formatMinutes(currentMinutes)}</td>
+                                        {allocationMode !== savedAllocationMode && (
+                                          <>
+                                            <td className="p-2 text-sm">{formatMinutes(newMinutes)}</td>
+                                            <td className="p-2 text-sm">
+                                              {delta === 0 ? 'No change' : `${delta > 0 ? '+' : '-'}${formatMinutes(Math.abs(delta))}`}
+                                            </td>
+                                          </>
+                                        )}
+                                      </tr>
+
+                                      {shiftsForDate.length > 0 && (
+                                        <tr className="bg-blue-50 border-t border-gray-100">
+                                          <td colSpan={allocationMode !== savedAllocationMode ? 4 : 2} className="p-3 pl-8">
+                                            <div className="text-xs text-gray-700">
+                                              <p className="font-medium mb-1">Shifts:</p>
+                                              <ul className="space-y-0.5 list-disc list-inside">
+                                                {shiftsForDate.map((shift, idx) => (
+                                                  <li key={idx} className="text-gray-600">
+                                                    {shift.shiftId} — {formatMinutes(shift.minutes)}
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </Fragment>
+                                  );
+                                })}
+                              </Fragment>
+                            );
+                          });
+
+                          return [
+                            ...weekRows,
+                            <tr key="totals" className="border-t border-b-2 border-b-gray-400 bg-gray-100 font-semibold">
+                              <td className="p-2">
+                                <span className="font-bold">Total</span>
+                              </td>
+                              <td className="p-2">{formatMinutes(totalCurrentMinutes)}</td>
+                              {allocationMode !== savedAllocationMode && (
+                                <>
+                                  <td className="p-2">{formatMinutes(totalNewMinutes)}</td>
+                                  <td className="p-2">
+                                    {totalDelta === 0 ? 'No change' : `${totalDelta > 0 ? '+' : '-'}${formatMinutes(Math.abs(totalDelta))}`}
+                                  </td>
+                                </>
+                              )}
+                            </tr>,
+                          ];
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </Card>
+          </div>
           </div>
 
-          {/* Saved Work Schedules List - Right */}
+          {/* Saved Work Schedule Templates List - Right */}
           <div className="w-96 border-l pl-6">
         <div className="sticky top-0">
-          <h3 className="text-lg font-semibold mb-4">Saved Work Schedules</h3>
+          <h3 className="text-lg font-semibold mb-4">Saved Work Schedule Templates</h3>
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Filter by shift period
@@ -2470,9 +3369,9 @@ export function RosterPatternsClient() {
             {loading ? (
               <p className="text-sm text-gray-500">Loading...</p>
             ) : workSchedules.length === 0 ? (
-              <p className="text-sm text-gray-500">No work schedules saved yet.</p>
+              <p className="text-sm text-gray-500">No work schedule templates saved yet.</p>
             ) : filteredSchedules.length === 0 ? (
-              <p className="text-sm text-gray-500">No schedules match this filter.</p>
+              <p className="text-sm text-gray-500">No templates match this filter.</p>
             ) : (
               filteredSchedules.map((schedule) => {
                 const isSplit = isSplitShift(schedule);
@@ -2518,28 +3417,29 @@ export function RosterPatternsClient() {
                       setSelectedCell(null);
                     }}
                     className={`p-4 cursor-move transition-colors border ${getShiftTileClasses(schedule)}`}
+                    style={getShiftTileStyle(schedule)}
                   >
-                    <div className={`font-bold text-base mb-2 ${isSplit ? "text-white" : "text-gray-900"}`}>
+                    <div className={`font-bold text-base mb-2 ${isSplit ? "text-white" : (getShiftTileStyle(schedule) ? "" : "text-gray-900")}`}>
                       {schedule.shift_id}
                     </div>
-                    <div className={`text-sm mb-2 ${isSplit ? "text-white/80" : "text-gray-600"}`}>
+                    <div className={`text-sm mb-2 ${isSplit ? "text-white/80" : (getShiftTileStyle(schedule) ? "" : "text-gray-600")}`}>
                       Type: {schedule.shift_type}
                     </div>
                     
                     {timeframes.map((tf, idx) => (
-                      <div key={idx} className={`text-sm mb-2 ${isSplit ? "text-white/90" : "text-gray-700"}`}>
-                        <div className={`font-medium ${isSplit ? "text-white" : "text-gray-900"}`}>
+                      <div key={idx} className={`text-sm mb-2 ${isSplit ? "text-white/90" : (getShiftTileStyle(schedule) ? "" : "text-gray-700")}`}>
+                        <div className={`font-medium ${isSplit ? "text-white" : (getShiftTileStyle(schedule) ? "" : "text-gray-900")}`}>
                           Time Frame {idx + 1}: {tf.start_time.slice(0, 5)} - {tf.end_time.slice(0, 5)}
                         </div>
                         {tf.meal_start && tf.meal_end && (
-                          <div className={`text-xs ml-2 ${isSplit ? "text-white/70" : "text-gray-600"}`}>
+                          <div className={`text-xs ml-2 ${isSplit ? "text-white/70" : (getShiftTileStyle(schedule) ? "" : "text-gray-600")}`}>
                             Meal ({tf.meal_type || 'paid'}): {tf.meal_start.slice(0, 5)} - {tf.meal_end.slice(0, 5)}
                           </div>
                         )}
                       </div>
                     ))}
                     
-                    <div className={`font-semibold text-sm mt-2 pt-2 border-t ${isSplit ? "border-white/30 text-white" : "border-gray-200 text-gray-800"}`}>
+                    <div className={`font-semibold text-sm mt-2 pt-2 border-t ${isSplit ? "border-white/30 text-white" : (getShiftTileStyle(schedule) ? "" : "border-gray-200 text-gray-800")}`}>
                       Total Hours: {calculateTotalHours()}
                     </div>
                   </Card>
@@ -2550,6 +3450,35 @@ export function RosterPatternsClient() {
         </div>
           </div>
         </div>
+      )}
+
+      {/* Enterprise Allocation Features */}
+      {selectedShiftForExplanation && (
+        <AllocationExplanationDrawer
+          shift={selectedShiftForExplanation}
+          allocationSettings={allocationSettings}
+          isOpen={showExplanation}
+          onClose={() => {
+            setShowExplanation(false);
+            setSelectedShiftForExplanation(null);
+          }}
+        />
+      )}
+
+      {selectedShiftForSimulation && (
+        <AllocationSimulationModal
+          isOpen={showSimulation}
+          simulation={simulationResult || undefined}
+          isLoading={simulationLoading}
+          error={simulationError || undefined}
+          newModeName={getAllocationModeLabel(allocationMode)}
+          onClose={() => {
+            setShowSimulation(false);
+            setSelectedShiftForSimulation(null);
+            setSimulationResult(null);
+            setSimulationError(null);
+          }}
+        />
       )}
     </>
   );

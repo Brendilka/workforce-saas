@@ -548,37 +548,46 @@ export function WorkScheduleForm({
   };
 
   const validateMeals = () => {
-    // MEALS ARE OPTIONAL - ALWAYS RETURN TRUE (NO VALIDATION)
-    // Users can leave meal times completely blank
-    return true;
+    const newMealErrors = timeframes.map((tf, index) => {
+      if (tf.mealType !== "unpaid") return "";
+      const mealStart = tf.mealStart || "";
+      const mealEnd = tf.mealEnd || "";
+      if (mealStart === ":" || mealEnd === ":" || !mealStart.trim() || !mealEnd.trim()) {
+        return "Meal start and end are required when meal is Unpaid.";
+      }
+      const [sH, sM] = mealStart.split(":").map(Number);
+      const [eH, eM] = mealEnd.split(":").map(Number);
+      if (Number.isNaN(sH) || Number.isNaN(sM) || Number.isNaN(eH) || Number.isNaN(eM)) {
+        return "Enter valid meal start and end times.";
+      }
+      if (!mealWithinTimeframe(tf)) {
+        return "Meal must fall within the shift timeframe.";
+      }
+      return "";
+    });
+    setMealErrors(newMealErrors);
+    return !newMealErrors.some(Boolean);
   };
 
   // Validate end time vs start time in real-time
   useEffect(() => {
     validateEndTimeAfterStartTime();
-    // Also clear meal errors for timeframes with empty meals
+    // Clear meal errors for Paid timeframes; keep validation state for Unpaid
     const newMealErrors = [...mealErrors];
     timeframes.forEach((tf, index) => {
-      const mealStart = tf.mealStart || "";
-      const mealEnd = tf.mealEnd || "";
-      
-      const mealStartParts = mealStart.split(":").filter(p => p !== null && p !== undefined);
-      const mealEndParts = mealEnd.split(":").filter(p => p !== null && p !== undefined);
-      
-      const mealStartHour = mealStartParts[0]?.trim() || "";
-      const mealStartMin = mealStartParts[1]?.trim() || "";
-      const mealEndHour = mealEndParts[0]?.trim() || "";
-      const mealEndMin = mealEndParts[1]?.trim() || "";
-      
-      const hasAnyMealStart = mealStartHour !== "" && mealStartMin !== "";
-      const hasAnyMealEnd = mealEndHour !== "" && mealEndMin !== "";
-      
-      // If both meals are empty, clear any error for this timeframe
-      if (!hasAnyMealStart && !hasAnyMealEnd) {
+      if (tf.mealType === "paid") {
         newMealErrors[index] = "";
+      } else {
+        const mealStart = tf.mealStart || "";
+        const mealEnd = tf.mealEnd || "";
+        const hasAnyMealStart = /^\d{1,2}:\d{1,2}$/.test(mealStart.replace(/^:|:$/g, ""));
+        const hasAnyMealEnd = /^\d{1,2}:\d{1,2}$/.test(mealEnd.replace(/^:|:$/g, ""));
+        if (hasAnyMealStart && hasAnyMealEnd) {
+          newMealErrors[index] = "";
+        }
       }
     });
-    if (newMealErrors.some(e => e) !== mealErrors.some(e => e)) {
+    if (newMealErrors.some((e, i) => e !== mealErrors[i])) {
       setMealErrors(newMealErrors);
     }
   }, [timeframes]);
@@ -630,6 +639,13 @@ export function WorkScheduleForm({
     } else if (field === "mealEndMinute") {
       const [hour] = tf.mealEnd.split(":");
       tf.mealEnd = `${hour || ""}:${value || ""}`;
+    } else if (field === "mealType") {
+      (tf as any)[field] = value;
+      // When switching to Paid, clear meal times so we don't ask for them
+      if (value === "paid") {
+        tf.mealStart = ":";
+        tf.mealEnd = ":";
+      }
     } else {
       (tf as any)[field] = value;
     }
@@ -647,12 +663,24 @@ export function WorkScheduleForm({
       return;
     }
 
-    if (timeframes.some((tf) => !tf.startTime || !tf.endTime)) {
+    if (timeframes.some((tf) => !tf.startTime || !tf.endTime || tf.startTime === ":" || tf.endTime === ":")) {
       setSubmitError("All timeframe fields are required");
       return;
     }
 
-    // Validation removed to allow midnight-spanning shifts
+    // Start and end cannot be the same; max duration 23h59
+    for (let i = 0; i < timeframes.length; i++) {
+      const tf = timeframes[i];
+      if (tf.startTime === tf.endTime) {
+        setSubmitError("Shift start and end times cannot be the same. Maximum duration is 23 hours 59 minutes.");
+        return;
+      }
+      const mins = durationInMinutes(tf.startTime, tf.endTime);
+      if (mins > 23 * 60 + 59) {
+        setSubmitError("Maximum shift duration is 23 hours 59 minutes.");
+        return;
+      }
+    }
 
     if (!checkOverlap()) {
       setSubmitError("Cannot submit with overlapping timeframes");
@@ -673,8 +701,8 @@ export function WorkScheduleForm({
           startTime: tf.startTime,
           endTime: tf.endTime,
           mealType: tf.mealType,
-          mealStart: tf.mealStart || null,
-          mealEnd: tf.mealEnd || null,
+          mealStart: tf.mealType === "unpaid" && tf.mealStart && tf.mealStart !== ":" ? tf.mealStart : null,
+          mealEnd: tf.mealType === "unpaid" && tf.mealEnd && tf.mealEnd !== ":" ? tf.mealEnd : null,
         })),
       });
     } catch (error) {
@@ -831,17 +859,34 @@ export function WorkScheduleForm({
 
                 <div>
                   <Label className="text-xs text-gray-600 mb-1 block">
-                    {(timeframe.mealStart !== ":" || timeframe.mealEnd !== ":") ? "Hours" : "Meal"}
+                    {timeframe.mealType === "paid" ? "Meal" : (timeframe.mealStart !== ":" || timeframe.mealEnd !== ":") ? "Hours" : "Meal"}
                   </Label>
-                  {(timeframe.mealStart !== ":" || timeframe.mealEnd !== ":") ? (
+                  {timeframe.mealType === "paid" ? (
+                    <>
+                      <Select
+                        value={timeframe.mealType}
+                        onValueChange={(val) => updateTimeframe(index, "mealType", val)}
+                        disabled={isLoading}
+                      >
+                        <SelectTrigger className="text-xs h-8 bg-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="paid">Paid</SelectItem>
+                          <SelectItem value="unpaid">Unpaid</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500 mt-1 font-medium">{calculateFrameHours(index)}</p>
+                    </>
+                  ) : (timeframe.mealStart !== ":" || timeframe.mealEnd !== ":") ? (
                     <Input
                       value={calculateFrameHours(index)}
                       readOnly
                       className="text-xs h-8 bg-gray-100 cursor-default border-gray-200 text-gray-700"
                     />
                   ) : (
-                    <Select 
-                      value={timeframe.mealType} 
+                    <Select
+                      value={timeframe.mealType}
                       onValueChange={(val) => updateTimeframe(index, "mealType", val)}
                       disabled={isLoading}
                     >
@@ -857,8 +902,8 @@ export function WorkScheduleForm({
                 </div>
               </div>
 
-              {/* Meal Time Row - Optional */}
-              {(timeframe.mealStart !== ":" || timeframe.mealEnd !== ":") && (
+              {/* Meal Time Row - only when Meal = Unpaid and meal times are set */}
+              {timeframe.mealType === "unpaid" && (timeframe.mealStart !== ":" || timeframe.mealEnd !== ":") && (
                 <div className="grid grid-cols-3 gap-2 pt-1 border-t border-gray-200">
                   <div>
                     <Label className="text-xs text-gray-600 mb-1 block">Meal Start</Label>
@@ -917,13 +962,13 @@ export function WorkScheduleForm({
                 </div>
               )}
 
-              {/* Show meal input option if no meals yet */}
-              {timeframe.mealStart === ":" && timeframe.mealEnd === ":" && (
+              {/* Show "Add Meal Time" only when Meal = Unpaid and no meal times yet */}
+              {timeframe.mealType === "unpaid" && timeframe.mealStart === ":" && timeframe.mealEnd === ":" && (
                 <button
                   type="button"
                   onClick={() => {
-                    updateTimeframe(index, "mealStart", ":");
-                    updateTimeframe(index, "mealEnd", ":");
+                    updateTimeframe(index, "mealStart", "");
+                    updateTimeframe(index, "mealEnd", "");
                   }}
                   className="text-xs text-blue-600 hover:text-blue-700 py-1 font-medium"
                 >

@@ -228,23 +228,20 @@ export function Sidebar({ userRole, userName, userInitials }: SidebarProps) {
             </Link>
           );
         })}
-      </nav>
 
-      {/* Logout Button */}
-      <div className="p-4 border-t">
-        <Button
-          variant="ghost"
+        {/* Logout - positioned as last menu option below settings */}
+        <button
           onClick={handleLogout}
           disabled={isPending}
           className={cn(
-            "w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10",
+            "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors w-full text-destructive hover:bg-destructive/10 hover:text-destructive",
             isCollapsed && "justify-center px-2"
           )}
         >
-          <LogOut className="h-5 w-5" />
-          {!isCollapsed && <span className="ml-3">{isPending ? "Logging out..." : "Logout"}</span>}
-        </Button>
-      </div>
+          <LogOut className="h-5 w-5 shrink-0" />
+          {!isCollapsed && <span>{isPending ? "Logging out..." : "Logout"}</span>}
+        </button>
+      </nav>
     </div>
   );
 

@@ -71,8 +71,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { shiftId, shiftType, description, timeframes } = body;
+    const normalizedShiftId = typeof shiftId === "string" ? shiftId.trim() : shiftId;
 
-    if (!shiftId || !shiftType || !timeframes || timeframes.length === 0) {
+    if (!normalizedShiftId || !shiftType || !timeframes || timeframes.length === 0) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -89,6 +90,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Reject start === end; max duration 23h59
+    const MAX_DURATION_MINUTES = 23 * 60 + 59;
+    for (const tf of timeframes) {
+      if (tf.startTime === tf.endTime) {
+        return NextResponse.json(
+          { error: "Shift start and end times cannot be the same. Maximum duration is 23 hours 59 minutes." },
+          { status: 400 }
+        );
+      }
+      const [sH, sM] = String(tf.startTime).split(":").map(Number);
+      const [eH, eM] = String(tf.endTime).split(":").map(Number);
+      const startMins = (Number.isNaN(sH) ? 0 : sH) * 60 + (Number.isNaN(sM) ? 0 : sM);
+      let endMins = (Number.isNaN(eH) ? 0 : eH) * 60 + (Number.isNaN(eM) ? 0 : eM);
+      if (endMins <= startMins) endMins += 24 * 60;
+      const durationMins = endMins - startMins;
+      if (durationMins > MAX_DURATION_MINUTES) {
+        return NextResponse.json(
+          { error: "Maximum shift duration is 23 hours 59 minutes." },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate each timeframe's meal is within its own boundaries
     const normalizeInterval = (start: string, end: string) => {
       const [sH, sM] = start.split(":").map(Number);
       const [eH, eM] = end.split(":").map(Number);
@@ -131,6 +156,20 @@ export async function POST(request: NextRequest) {
     // Create work schedule using service role client to bypass RLS
     const adminClient = createAdminClient();
 
+    const { data: existingSchedule } = await adminClient
+      .from("work_schedules")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("shift_id", normalizedShiftId)
+      .maybeSingle();
+
+    if (existingSchedule) {
+      return NextResponse.json(
+        { error: `Shift ID "${normalizedShiftId}" already exists. Choose a unique ID.` },
+        { status: 409 }
+      );
+    }
+
     // Generate ID for the new schedule
     const scheduleId = crypto.randomUUID();
 
@@ -140,7 +179,7 @@ export async function POST(request: NextRequest) {
       const [eH, eM] = tf.endTime.split(":").map(Number);
       const startMins = sH * 60 + sM;
       const endMins = eH * 60 + eM;
-      return endMins < startMins; // end_time < start_time indicates midnight crossing
+      return endMins < startMins;
     });
 
     const { error: scheduleError } = await adminClient
@@ -148,13 +187,21 @@ export async function POST(request: NextRequest) {
       .insert({
         id: scheduleId,
         tenant_id: tenantId,
-        shift_id: shiftId,
+        shift_id: normalizedShiftId,
         shift_type: shiftType,
         description: description || null,
         spans_midnight: spansMidnight,
       });
 
-    if (scheduleError) throw scheduleError;
+    if (scheduleError) {
+      if ((scheduleError as { code?: string })?.code === "23505") {
+        return NextResponse.json(
+          { error: `Shift ID "${normalizedShiftId}" already exists. Choose a unique ID.` },
+          { status: 409 }
+        );
+      }
+      throw scheduleError;
+    }
 
     // Insert timeframes with service role (including meal data)
     const timeframesData = timeframes.map(

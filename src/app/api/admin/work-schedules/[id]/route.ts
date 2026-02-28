@@ -216,6 +216,29 @@ export async function PUT(
       }
     }
 
+    // Reject start === end; max duration 23h59
+    const MAX_DURATION_MINUTES = 23 * 60 + 59;
+    for (const tf of timeframes) {
+      if (tf.startTime === tf.endTime) {
+        return NextResponse.json(
+          { error: "Shift start and end times cannot be the same. Maximum duration is 23 hours 59 minutes." },
+          { status: 400 }
+        );
+      }
+      const [sH, sM] = String(tf.startTime).split(":").map((n) => (Number.isNaN(Number(n)) ? 0 : Number(n)));
+      const [eH, eM] = String(tf.endTime).split(":").map((n) => (Number.isNaN(Number(n)) ? 0 : Number(n)));
+      const startMins = sH * 60 + sM;
+      let endMins = eH * 60 + eM;
+      if (endMins <= startMins) endMins += 24 * 60;
+      const durationMins = endMins - startMins;
+      if (durationMins > MAX_DURATION_MINUTES) {
+        return NextResponse.json(
+          { error: "Maximum shift duration is 23 hours 59 minutes." },
+          { status: 400 }
+        );
+      }
+    }
+
     const normalizeInterval = (start: unknown, end: unknown) => {
       const startStr = typeof start === "string" ? start : "";
       const endStr = typeof end === "string" ? end : "";
@@ -244,13 +267,7 @@ export async function PUT(
             { status: 400 }
           );
         }
-        if (meal.end <= meal.start) {
-          return NextResponse.json(
-            { error: "Meal end must be later than meal start" },
-            { status: 400 }
-          );
-        }
-
+        // Allow meal to span midnight (same as POST); only validate meal is within frame
         let ms = meal.start;
         let me = meal.end;
         if (ms < frame.start) {
@@ -500,8 +517,8 @@ export async function PUT(
         end_time: tf.endTime,
         frame_order: index,
         meal_type: tf.mealType || 'paid',
-        meal_start: tf.mealStart || null,
-        meal_end: tf.mealEnd || null,
+        meal_start: (tf.mealStart && tf.mealStart !== ":") ? tf.mealStart : null,
+        meal_end: (tf.mealEnd && tf.mealEnd !== ":") ? tf.mealEnd : null,
       })
     );
 
@@ -523,8 +540,8 @@ export async function PUT(
           end_time: tf.endTime,
           frame_order: index,
           meal_type: tf.mealType || "paid",
-          meal_start: tf.mealStart || null,
-          meal_end: tf.mealEnd || null,
+          meal_start: (tf.mealStart && tf.mealStart !== ":") ? tf.mealStart : null,
+          meal_end: (tf.mealEnd && tf.mealEnd !== ":") ? tf.mealEnd : null,
         })
       ),
     };

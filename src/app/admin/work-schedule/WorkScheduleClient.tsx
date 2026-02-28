@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { WorkScheduleForm } from "@/components/work-schedule-form";
 import type { ShiftTypeOption, DayPeriodConfig } from "@/lib/types/database";
+import { getPeriodHeaderStyle, getPeriodCardStyle } from "@/lib/day-period-colors";
 import { createClient } from "@/lib/supabase/client";
 
 const DEFAULT_DAY_PERIODS: DayPeriodConfig[] = [
@@ -102,7 +103,8 @@ export function WorkScheduleClient() {
         setShiftTypes(row.shift_types);
       }
       if (Array.isArray(row?.day_periods) && row.day_periods.length > 0) {
-        setDayPeriods([...row.day_periods].sort((a, b) => a.startMinutes - b.startMinutes));
+        // Preserve stored order (column order from Settings)
+        setDayPeriods([...row.day_periods]);
       }
     } catch {
       // use defaults
@@ -355,14 +357,11 @@ export function WorkScheduleClient() {
   });
   const splitShiftsList = sortSchedules(schedules.filter(isSplitShift));
 
-  const periodColors: string[] = ["bg-blue-900", "bg-yellow-600", "bg-gray-300", "bg-orange-600", "bg-violet-600", "bg-emerald-600", "bg-rose-500", "bg-cyan-600", "bg-amber-500", "bg-slate-500"];
-  const periodBgLight: string[] = ["bg-blue-900/10", "bg-yellow-200/70", "bg-white", "bg-orange-200/70", "bg-violet-100", "bg-emerald-100", "bg-rose-100", "bg-cyan-100", "bg-amber-100", "bg-slate-100"];
-
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Work Schedule"
-        description="Manage employee work schedules"
+        title="Work Schedule Templates"
+        description="Manage employee work schedule templates"
       />
 
       <Dialog open={isDialogOpen} onOpenChange={(open) => {
@@ -453,7 +452,7 @@ export function WorkScheduleClient() {
                 This edit would cause rest-time issues for &quot;{editingSchedule.shift_id}&quot;
               </h3>
               <p className="text-sm text-amber-700 mb-3">
-                The roster patterns below <strong>use this work schedule</strong>. With your changes, the rest time between this schedule and the next or previous shift would be below the minimum in these places. You can save anyway and fix the patterns later, or cancel to change the schedule.
+                The roster patterns below <strong>use this work schedule template</strong>. With your changes, the rest time between this schedule and the next or previous shift would be below the minimum in these places. You can save anyway and fix the patterns later, or cancel to change the schedule.
               </p>
               <p className="text-xs text-amber-600 mb-2 font-medium">Roster patterns affected:</p>
               <ul className="space-y-2 mb-4">
@@ -504,20 +503,23 @@ export function WorkScheduleClient() {
       ) : schedules.length === 0 ? (
         <Card className="p-8 text-center">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">
-            No schedules yet
+            No templates yet
           </h3>
           <p className="text-sm text-gray-500">
-            Create your first work schedule to get started
+            Create your first work schedule template to get started
           </p>
         </Card>
       ) : (
         <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${dayPeriods.length + 1}, minmax(0, 1fr))` }}>
-          {dayPeriods.map((period, idx) => (
+          {dayPeriods.map((period, idx) => {
+            const headerStyle = getPeriodHeaderStyle(period, idx);
+            const cardStyle = getPeriodCardStyle(period, idx);
+            return (
             <div key={period.id} className="flex flex-col gap-4">
-              <div className={`${periodColors[idx % periodColors.length]} text-white p-3 rounded-t-lg text-center font-semibold`}>
+              <div className="text-white p-3 rounded-t-lg text-center font-semibold" style={{ backgroundColor: headerStyle.backgroundColor, color: headerStyle.color }}>
                 {period.label} ({formatPeriodTime(period.startMinutes, period.endMinutes)})
               </div>
-              <div className={`${periodBgLight[idx % periodBgLight.length]} p-4 rounded-b-lg min-h-[200px] space-y-4 border border-t-0 ${idx === 2 ? "border-gray-300" : ""}`}>
+              <div className="p-4 rounded-b-lg min-h-[200px] space-y-4 border border-t-0" style={{ backgroundColor: cardStyle.backgroundColor, borderColor: cardStyle.borderColor }}>
                 {(schedulesByPeriodId[period.id] ?? []).length === 0 ? (
                   <p className="text-sm text-gray-500 text-center">No shifts</p>
                 ) : (
@@ -559,7 +561,8 @@ export function WorkScheduleClient() {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
 
           {/* Split Shifts Column */}
           <div className="flex flex-col gap-4">

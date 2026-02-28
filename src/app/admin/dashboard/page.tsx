@@ -46,10 +46,10 @@ const adminFeatures = [
     disabled: false,
   },
   {
-    title: "Work Schedule",
+    title: "Work Schedule Templates",
     href: "/admin/work-schedule",
     icon: CalendarClock,
-    description: "Manage work schedules and staffing patterns",
+    description: "Manage work schedule templates and staffing patterns",
     disabled: false,
   },
   {

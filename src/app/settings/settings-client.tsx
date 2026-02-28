@@ -6,15 +6,16 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Minus, Check, AlertCircle, X, Trash2 } from "lucide-react";
+import { Plus, Minus, Check, AlertCircle, X, Trash2, GripVertical } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { DayPeriodConfig } from "@/lib/types/database";
+import { getPeriodColor, DEFAULT_PERIOD_COLORS } from "@/lib/day-period-colors";
 
 const DEFAULT_DAY_PERIODS: DayPeriodConfig[] = [
-  { id: "night", label: "Night", startMinutes: 0, endMinutes: 360 },       // 0:00-6:00
-  { id: "morning", label: "Morning", startMinutes: 360, endMinutes: 720 }, // 6:00-12:00
-  { id: "day", label: "Day", startMinutes: 720, endMinutes: 1080 },          // 12:00-18:00
-  { id: "evening", label: "Evening", startMinutes: 1080, endMinutes: 1440 }, // 18:00-24:00
+  { id: "night", label: "Night", startMinutes: 0, endMinutes: 360, color: "#1e3a5f" },
+  { id: "morning", label: "Morning", startMinutes: 360, endMinutes: 720, color: "#ca8a04" },
+  { id: "day", label: "Day", startMinutes: 720, endMinutes: 1080, color: "#9ca3af" },
+  { id: "evening", label: "Evening", startMinutes: 1080, endMinutes: 1440, color: "#ea580c" },
 ];
 
 const MIN_PERIOD_MINUTES = 30;
@@ -100,8 +101,12 @@ export function SettingsClient() {
           setMinHoursBetweenShifts(row.min_hours_between_shifts);
         }
         if (Array.isArray(row.day_periods) && row.day_periods.length > 0) {
-          const sorted = [...row.day_periods].sort((a, b) => a.startMinutes - b.startMinutes);
-          setDayPeriods(sorted);
+          // Preserve stored order (used for column order on Work Schedule Templates page)
+          const loaded = row.day_periods as DayPeriodConfig[];
+          setDayPeriods(loaded.map((p, i) => ({
+            ...p,
+            color: p.color && /^#[0-9A-Fa-f]{6}$/.test(String(p.color).trim()) ? String(p.color).trim() : DEFAULT_PERIOD_COLORS[i % DEFAULT_PERIOD_COLORS.length],
+          })));
         }
       }
     } catch (error) {
@@ -137,7 +142,7 @@ export function SettingsClient() {
       const payload = {
         tenant_id: tenantId,
         min_hours_between_shifts: minHoursBetweenShifts,
-        day_periods: JSON.parse(JSON.stringify(dayPeriods)),
+        day_periods: dayPeriods.map((p) => ({ ...p, label: p.label.trim() || p.label })),
       };
 
       const { error } = await supabase.from("tenant_config").upsert(payload as any, {
@@ -192,11 +197,13 @@ export function SettingsClient() {
     setDayPeriods((prev) => {
       if (handleIndex < 0 || handleIndex >= prev.length - 1) return prev;
       const low = prev[handleIndex].startMinutes + MIN_PERIOD_MINUTES;
-      const high = prev[handleIndex + 1].endMinutes - MIN_PERIOD_MINUTES;
+      const isLastPeriod = handleIndex + 1 === prev.length - 1;
+      const high = isLastPeriod ? 1440 - MIN_PERIOD_MINUTES : prev[handleIndex + 1].endMinutes - MIN_PERIOD_MINUTES;
       const clamped = Math.round(Math.max(low, Math.min(high, minutes)) / 15) * 15; // snap to 15 min
       const next = prev.map((p, i) => ({ ...p }));
       next[handleIndex] = { ...next[handleIndex], endMinutes: clamped };
       next[handleIndex + 1] = { ...next[handleIndex + 1], startMinutes: clamped };
+      if (isLastPeriod) next[handleIndex + 1].endMinutes = 1440;
       return next;
     });
   }, []);
@@ -229,7 +236,32 @@ export function SettingsClient() {
   const updateDayPeriodLabel = (index: number, label: string) => {
     setDayPeriods((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], label: label || next[index].label };
+      const rawLabel = typeof label === "string" ? label : next[index].label;
+      const trimmedForMatch = rawLabel.trim();
+      const existing = next.find((p, i) => i !== index && p.label.trim().toLowerCase() === trimmedForMatch.toLowerCase());
+      next[index] = {
+        ...next[index],
+        label: rawLabel,
+        ...(existing && { color: existing.color ?? next[index].color }),
+      };
+      return next;
+    });
+  };
+
+  const updateDayPeriodColor = (index: number, color: string) => {
+    setDayPeriods((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], color: color || undefined };
+      return next;
+    });
+  };
+
+  const moveDayPeriodRow = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || toIndex < 0 || toIndex >= dayPeriods.length) return;
+    setDayPeriods((prev) => {
+      const next = [...prev];
+      const [removed] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, removed);
       return next;
     });
   };
@@ -240,7 +272,15 @@ export function SettingsClient() {
       const last = prev[prev.length - 1];
       const mid = last.startMinutes + Math.floor((last.endMinutes - last.startMinutes) / 2);
       const newId = `period-${Date.now()}`;
-      const newPeriod: DayPeriodConfig = { id: newId, label: "New period", startMinutes: mid, endMinutes: last.endMinutes };
+      const newLabel = "New period";
+      const existing = prev.find((p) => p.label.trim().toLowerCase() === newLabel.toLowerCase());
+      const newPeriod: DayPeriodConfig = {
+        id: newId,
+        label: newLabel,
+        startMinutes: mid,
+        endMinutes: last.endMinutes,
+        color: existing?.color ?? DEFAULT_PERIOD_COLORS[prev.length % DEFAULT_PERIOD_COLORS.length],
+      };
       const next = prev.map((p, i) => (i === prev.length - 1 ? { ...p, endMinutes: mid } : { ...p }));
       return [...next, newPeriod];
     });
@@ -262,7 +302,24 @@ export function SettingsClient() {
     });
   };
 
-  const periodColors = ["bg-blue-900", "bg-yellow-600", "bg-gray-300", "bg-orange-600", "bg-violet-600", "bg-emerald-600", "bg-rose-500", "bg-cyan-600", "bg-amber-500", "bg-slate-500"];
+  const [draggedPeriodIndex, setDraggedPeriodIndex] = useState<number | null>(null);
+  const handlePeriodDragStart = (index: number) => (e: React.DragEvent) => {
+    setDraggedPeriodIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+    if (e.target instanceof HTMLElement) e.target.classList.add("opacity-50");
+  };
+  const handlePeriodDragEnd = (e: React.DragEvent) => {
+    setDraggedPeriodIndex(null);
+    if (e.target instanceof HTMLElement) e.target.classList.remove("opacity-50");
+  };
+  const handlePeriodDragOver = (e: React.DragEvent) => e.preventDefault();
+  const handlePeriodDrop = (toIndex: number) => (e: React.DragEvent) => {
+    e.preventDefault();
+    const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
+    if (!Number.isNaN(fromIndex) && fromIndex !== toIndex) moveDayPeriodRow(fromIndex, toIndex);
+    setDraggedPeriodIndex(null);
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -318,10 +375,10 @@ export function SettingsClient() {
 
             <div className="border-t pt-6">
               <Label className="text-base font-semibold mb-3 block">
-                Day periods (Work Schedule columns)
+                Day periods (Work Schedule Templates columns)
               </Label>
               <p className="text-xs text-gray-500 mb-3">
-                Customize names and time ranges for the Work Schedule page columns. Must cover 24 hours with no gaps or overlaps (max {MAX_DAY_PERIODS} periods). Drag the handles between segments to adjust.
+                Customize names and time ranges for the Work Schedule Templates page columns. Must cover 24 hours with no gaps or overlaps (max {MAX_DAY_PERIODS} periods). Drag the handles between segments to adjust.
               </p>
               {dayPeriodsError && (
                 <p className="text-sm text-red-600 mb-2">{dayPeriodsError}</p>
@@ -330,8 +387,8 @@ export function SettingsClient() {
                 {dayPeriods.map((period, i) => (
                   <div key={period.id} className="flex items-stretch min-w-0" style={{ width: `${((period.endMinutes - period.startMinutes) / 1440) * 100}%` }}>
                     <div
-                      className={`flex-1 flex items-center justify-center text-white text-xs font-medium truncate px-0.5 ${periodColors[i % periodColors.length]}`}
-                      style={{ minWidth: 0 }}
+                      className="flex-1 flex items-center justify-center text-white text-xs font-medium truncate px-0.5"
+                      style={{ backgroundColor: getPeriodColor(period, i), minWidth: 0 }}
                       title={`${period.label} (${minutesToTime(period.startMinutes)}–${minutesToTime(period.endMinutes)})`}
                     >
                       {period.label}
@@ -351,7 +408,25 @@ export function SettingsClient() {
               </div>
               <div className="space-y-2 mb-3">
                 {dayPeriods.map((period, i) => (
-                  <div key={period.id} className="flex items-center gap-2">
+                  <div
+                    key={period.id}
+                    draggable
+                    onDragStart={handlePeriodDragStart(i)}
+                    onDragEnd={handlePeriodDragEnd}
+                    onDragOver={handlePeriodDragOver}
+                    onDrop={handlePeriodDrop(i)}
+                    className={`flex items-center gap-2 rounded border border-gray-200 bg-white p-2 transition-opacity ${draggedPeriodIndex === i ? "opacity-50" : ""} ${draggedPeriodIndex !== null ? "hover:border-blue-300" : ""}`}
+                  >
+                    <div className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600" aria-label="Drag to reorder">
+                      <GripVertical className="h-5 w-5" />
+                    </div>
+                    <input
+                      type="color"
+                      value={getPeriodColor(period, i)}
+                      onChange={(e) => updateDayPeriodColor(i, e.target.value)}
+                      className="w-9 h-9 rounded border border-gray-300 cursor-pointer p-0.5 bg-white"
+                      title="Day type colour"
+                    />
                     <Input
                       value={period.label}
                       onChange={(e) => updateDayPeriodLabel(i, e.target.value)}

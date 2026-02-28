@@ -70,6 +70,8 @@ export interface DayPeriodConfig {
   label: string;
   startMinutes: number;
   endMinutes: number;
+  /** Hex color for UI (e.g. #1e3a5f). When missing, consumers use a default by index. */
+  color?: string | null;
 }
 
 export interface TenantConfig {
