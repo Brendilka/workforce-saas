@@ -2061,7 +2061,8 @@ export function RosterPatternsClient() {
     setWeeksPattern(pattern.weeks_pattern);
     setStartPatternWeek(pattern.start_pattern_week);
     setStartDay(pattern.start_day || 'Monday');
-    const mode = pattern.night_shift_allocation_mode || 'MAJORITY_HOURS';
+    const rawMode = pattern.night_shift_allocation_mode || 'MAJORITY_HOURS';
+    const mode = (rawMode === 'FIXED_ROSTER_DAY' || rawMode === 'WEEKLY_BALANCING') ? 'MAJORITY_HOURS' : rawMode;
     const params = pattern.night_shift_allocation_params || {};
     setAllocationMode(mode);
     setSavedAllocationMode(mode);
@@ -2559,8 +2560,6 @@ export function RosterPatternsClient() {
                     <option value="MAJORITY_HOURS">Majority Hours - Allocate to day with most hours</option>
                     <option value="START_DAY">Start Day - Allocate to shift start date</option>
                     <option value="SPLIT_BY_DAY">Split by Day - Allocate one per day crossed</option>
-                    <option value="FIXED_ROSTER_DAY">Fixed Roster Day - Allocate to specific day</option>
-                    <option value="WEEKLY_BALANCING">Weekly Balancing - Distribute evenly across week</option>
                   </select>
                   <p className="text-xs text-gray-600 mt-2">
                     Controls how cross-midnight shifts are allocated to days for payroll and reporting.
