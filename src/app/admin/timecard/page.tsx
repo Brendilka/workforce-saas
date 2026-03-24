@@ -6,6 +6,12 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
+type TimecardRow = {
+  label: string;
+  values: string[];
+  variant?: "schedule" | "exceptions";
+};
+
 const employeeMeta = [
   ["Home Business Structure", "Home Business Structure"],
   ["Company", "ABC"],
@@ -33,7 +39,7 @@ const weekColumns = [
   "Sun 16/03/25",
 ];
 
-const scheduleRows = [
+const scheduleRows: TimecardRow[] = [
   {
     label: "Schedule",
     values: ["09:00 - 17:06", "09:00 - 17:06", "09:00 - 17:06", "09:00 - 17:06", "09:00 - 17:06", "Not Rostered", "Not Rostered"],
@@ -80,9 +86,9 @@ const scheduleRows = [
     values: ["", "Overtime", "", "No Punch Out", "", "", ""],
     variant: "exceptions",
   },
-] as const;
+];
 
-const payCodeRows = [
+const payCodeRows: Array<{ label: string; values: string[] }> = [
   {
     label: "Pay Code",
     values: ["Ord001", "Ord001", "Ord001", "", "AL03", "OT1.5", ""],
@@ -111,7 +117,7 @@ const payCodeRows = [
     label: "Pay Code + Continued or Added",
     values: ["", "", "", "", "", "", ""],
   },
-] as const;
+];
 
 const totalsSummary = [
   ["Ord Shift hrs", "38"],
