@@ -1,4 +1,6 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Profile, CustomFieldDefinition, PageConfig, TenantConfig } from "@/lib/types/database";
+import type { Database } from "@/lib/types";
 
 const DEFAULT_PERSONAL_INFO_PAGE_CONFIG: PageConfig = {
   visibleFields: [
@@ -23,7 +25,7 @@ const DEFAULT_PERSONAL_INFO_PAGE_CONFIG: PageConfig = {
 };
 
 export async function getPersonalInfoPageData(
-  supabase: any,
+  supabase: SupabaseClient<Database>,
   tenantId: string,
   userId: string
 ) {
