@@ -14,6 +14,7 @@ import {
   Database,
   CalendarClock,
   Calendar,
+  Clock,
 } from "lucide-react";
 
 const adminFeatures = [
@@ -64,7 +65,14 @@ const adminFeatures = [
     href: "/admin/users",
     icon: Users,
     description: "Manage user accounts and permissions",
-    disabled: true,
+    disabled: false,
+  },
+  {
+    title: "Timecard",
+    href: "/admin/timecard",
+    icon: Clock,
+    description: "Review employee schedule versus actual timecard details",
+    disabled: false,
   },
   {
     title: "Department Management",

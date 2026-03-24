@@ -18,6 +18,7 @@ interface PersonalInfoFormProps {
   pageConfig: PageConfig;
   customFieldDefinitions: CustomFieldDefinition[];
   departments: Array<{ id: string; name: string }>;
+  allowEditing?: boolean;
 }
 
 // Field label mapping for display
@@ -43,6 +44,7 @@ export function PersonalInfoForm({
   pageConfig,
   customFieldDefinitions,
   departments,
+  allowEditing = true,
 }: PersonalInfoFormProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -343,7 +345,7 @@ export function PersonalInfoForm({
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>{group.groupName}</CardTitle>
-              {!isEditing && group === pageConfig.fieldGroups[0] && (
+              {allowEditing && !isEditing && group === pageConfig.fieldGroups[0] && (
                 <Button
                   type="button"
                   variant="outline"
@@ -367,7 +369,7 @@ export function PersonalInfoForm({
       ))}
 
       {/* Action Buttons */}
-      {isEditing && (
+      {allowEditing && isEditing && (
         <div className="flex gap-2">
           <Button type="submit" disabled={isSaving}>
             <Save className="h-4 w-4 mr-2" />

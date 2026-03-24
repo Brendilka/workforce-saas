@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Save, X, Trash2, MoreVertical } from "lucide-react";
+import { Pencil, Plus, Save, X, Trash2, MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -71,8 +71,7 @@ export function BusinessStructureEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [levelNames, setLevelNames] = useState<Record<number, string>>(initialData?.levelNames || {});
-  const [showLevelPrompt, setShowLevelPrompt] = useState(false);
-  const [editingLevelIndex, setEditingLevelIndex] = useState<number | null>(null);
+  const [editingLevelDescription, setEditingLevelDescription] = useState<number | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -82,7 +81,27 @@ export function BusinessStructureEditor({
   const UNIT_HEIGHT = 60;
   const RIGHT_MARGIN = 200; // Space reserved for "Add Unit" button
   const UNIT_GAP = 40; // Gap between units
-  const LEFT_MARGIN = 120; // Starting position
+  const LEVEL_NUMBER_WIDTH = 40;
+  const LEVEL_COLUMN_GAP = 12;
+  const LEVEL_COLUMN_PADDING = 24;
+  const longestLevelDescriptionLength = Math.max(
+    0,
+    ...Array.from(
+      { length: levels },
+      (_, index) => (levelNames[index + 1] || "").trim().length
+    )
+  );
+  const LEVEL_DESCRIPTION_WIDTH = Math.min(
+    260,
+    Math.max(96, longestLevelDescriptionLength * 8 + 32)
+  );
+  const LEVEL_DIVIDER_X =
+    LEVEL_COLUMN_PADDING +
+    LEVEL_NUMBER_WIDTH +
+    LEVEL_COLUMN_GAP +
+    LEVEL_DESCRIPTION_WIDTH +
+    24;
+  const LEFT_MARGIN = LEVEL_DIVIDER_X + 24;
 
   // Progressive sizing strategy for level
   const getLevelSizing = (unitsOnLevel: number) => {
@@ -206,30 +225,28 @@ export function BusinessStructureEditor({
   }, [shouldRedistribute]);
 
   const handleAddLevel = () => {
-    setShowLevelPrompt(true);
+    setLevels(levels + 1);
   };
 
-  const handleConfirmAddLevel = (name: string) => {
-    const newLevelNumber = levels + 1;
-    setLevels(newLevelNumber);
-    if (name && name !== `Level ${newLevelNumber}`) {
-      setLevelNames({ ...levelNames, [newLevelNumber]: name });
-    }
-    setShowLevelPrompt(false);
-  };
-
-  const handleUpdateLevelName = (levelNumber: number, name: string) => {
-    if (name && name !== `Level ${levelNumber}`) {
+  const handleUpdateLevelDescription = (levelNumber: number, name: string) => {
+    if (name.trim()) {
       setLevelNames({ ...levelNames, [levelNumber]: name });
     } else {
       const { [levelNumber]: _, ...rest } = levelNames;
       setLevelNames(rest);
     }
-    setEditingLevelIndex(null);
   };
 
-  const getLevelName = (levelNumber: number) => {
-    return levelNames[levelNumber] || `Level ${levelNumber}`;
+  const getLevelDescription = (levelNumber: number) => {
+    return levelNames[levelNumber] || "";
+  };
+
+  const startEditingLevelDescription = (levelNumber: number) => {
+    setEditingLevelDescription(levelNumber);
+  };
+
+  const stopEditingLevelDescription = () => {
+    setEditingLevelDescription(null);
   };
 
   const handleUpdateStructureName = async (name: string) => {
@@ -363,7 +380,7 @@ export function BusinessStructureEditor({
           u.id === isDragging
             ? {
                 ...u,
-                positionX: Math.max(100, x),
+                positionX: Math.max(LEFT_MARGIN, x),
                 positionY: snappedY,
                 level: newLevel,
               }
@@ -528,6 +545,10 @@ export function BusinessStructureEditor({
           className="relative"
           style={{ height: levels * LEVEL_HEIGHT + 200, paddingTop: 50 }}
         >
+        <div
+          className="absolute top-0 bottom-0 border-r border-gray-300"
+          style={{ left: LEVEL_DIVIDER_X, zIndex: 1 }}
+        />
         {/* Level Lines */}
         {Array.from({ length: levels }).map((_, index) => (
           <div key={index}>
@@ -554,32 +575,51 @@ export function BusinessStructureEditor({
             {/* Level label and Add Unit button - centered between lines */}
             <div
               className="absolute left-0 right-0 flex items-center justify-between px-4 pointer-events-none"
-              style={{ top: index * LEVEL_HEIGHT + LEVEL_HEIGHT / 2 - 12, zIndex: 1 }}
+              style={{ top: index * LEVEL_HEIGHT + LEVEL_HEIGHT / 2 - 16, zIndex: 1 }}
             >
-              {editingLevelIndex === index + 1 ? (
-                <input
-                  type="text"
-                  defaultValue={getLevelName(index + 1)}
-                  onBlur={(e) => handleUpdateLevelName(index + 1, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleUpdateLevelName(index + 1, e.currentTarget.value);
-                    }
-                    if (e.key === 'Escape') {
-                      setEditingLevelIndex(null);
-                    }
-                  }}
-                  autoFocus
-                  className="text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded px-2 py-1 pointer-events-auto"
-                />
-              ) : (
+              <div className="flex items-center gap-3 pointer-events-auto">
                 <div
-                  className="text-sm font-medium text-gray-600 cursor-pointer hover:text-gray-900 hover:underline pointer-events-auto"
-                  onClick={() => setEditingLevelIndex(index + 1)}
+                  className="text-center text-sm font-semibold text-gray-700"
+                  style={{ width: LEVEL_NUMBER_WIDTH }}
                 >
-                  {getLevelName(index + 1)}
+                  {index + 1}
                 </div>
-              )}
+                {editingLevelDescription === index + 1 ? (
+                  <Input
+                    value={getLevelDescription(index + 1)}
+                    onChange={(e) =>
+                      handleUpdateLevelDescription(index + 1, e.target.value)
+                    }
+                    onBlur={stopEditingLevelDescription}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === "Escape") {
+                        stopEditingLevelDescription();
+                      }
+                    }}
+                    placeholder="Add level description"
+                    className="bg-white"
+                    style={{ width: LEVEL_DESCRIPTION_WIDTH }}
+                    autoFocus
+                  />
+                ) : (
+                  <div
+                    className="group flex items-center gap-2 rounded-md px-2 py-1 hover:bg-white/90"
+                    style={{ width: LEVEL_DESCRIPTION_WIDTH }}
+                  >
+                    <div className="min-h-[20px] flex-1 text-sm text-gray-600">
+                      {getLevelDescription(index + 1)}
+                    </div>
+                    <button
+                      type="button"
+                      className="opacity-0 transition-opacity group-hover:opacity-100 text-gray-400 hover:text-gray-700"
+                      onClick={() => startEditingLevelDescription(index + 1)}
+                      aria-label={`Edit description for level ${index + 1}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
               <Button
                 size="sm"
                 variant="outline"
@@ -791,55 +831,6 @@ export function BusinessStructureEditor({
         })}
         </div>
       </div>
-
-      {/* Add Level Prompt */}
-      {showLevelPrompt && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
-            <h3 className="text-lg font-semibold mb-4">Add New Level</h3>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                const name = formData.get("levelName") as string;
-                handleConfirmAddLevel(name || `Level ${levels + 1}`);
-              }}
-            >
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="levelName">Level Name</Label>
-                  <Input
-                    id="levelName"
-                    name="levelName"
-                    placeholder={`Level ${levels + 1}`}
-                    onFocus={(e) => {
-                      if (e.target.value === `Level ${levels + 1}`) {
-                        e.target.value = '';
-                      }
-                    }}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Press Enter to use default name or type a custom name
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 mt-6">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowLevelPrompt(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" className="bg-admin hover:bg-admin/90">
-                  Add Level
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Unit Form Modal */}
       {showUnitForm && editingUnit && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
