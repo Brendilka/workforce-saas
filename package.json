@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "test": "jest",
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
+    "@opentelemetry/api": "^1.6.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-select": "^2.2.6",
     "@supabase/ssr": "^0.7.0",
