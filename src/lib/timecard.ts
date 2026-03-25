@@ -572,13 +572,23 @@ function getOrderedDays(startDay: string): Array<keyof PatternRow> {
   return [...days.slice(startIndex), ...days.slice(0, startIndex)];
 }
 
+function isPatternWorkSchedule(value: unknown): value is PatternWorkSchedule {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.shift_id === "string" &&
+    typeof value.shift_type === "string" &&
+    Array.isArray(value.work_schedule_timeframes)
+  );
+}
+
 function normalizePatternSchedules(value: unknown): PatternWorkSchedule[] {
   if (Array.isArray(value)) {
-    return value.filter(isRecord) as PatternWorkSchedule[];
+    return value.filter(isPatternWorkSchedule);
   }
 
-  if (isRecord(value)) {
-    return [value as PatternWorkSchedule];
+  if (isPatternWorkSchedule(value)) {
+    return [value];
   }
 
   return [];
