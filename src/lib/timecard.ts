@@ -32,8 +32,10 @@ export interface TimecardEmployeeSummary {
 }
 
 export interface GracePeriodValue {
-  before: number;
-  after: number;
+  startBefore: number;
+  startAfter: number;
+  endBefore: number;
+  endAfter: number;
 }
 
 export interface DepartmentGracePeriod extends GracePeriodValue {
@@ -108,13 +110,15 @@ export interface PatternScheduleForDate {
 
 export function getDefaultGracePeriodsConfig(): GracePeriodsConfig {
   return {
-    company: { before: 0, after: 0 },
+    company: { startBefore: 0, startAfter: 0, endBefore: 0, endAfter: 0 },
     departments: [
       {
         departmentId: ALL_DEPARTMENTS_GRACE_ID,
         departmentName: "All Departments",
-        before: 0,
-        after: 0,
+        startBefore: 0,
+        startAfter: 0,
+        endBefore: 0,
+        endAfter: 0,
       },
     ],
     users: [],
@@ -142,6 +146,21 @@ function toGraceMinutes(value: unknown): number {
 
 function toTimecardStatus(value: unknown): TimecardStatus {
   return value === "approved" || value === "exception" ? value : "pending";
+}
+
+function toGraceValue(
+  value: unknown,
+  fallbackBefore: unknown,
+  fallbackAfter: unknown
+): GracePeriodValue {
+  const record = isRecord(value) ? value : {};
+
+  return {
+    startBefore: toGraceMinutes(record.startBefore ?? fallbackBefore),
+    startAfter: toGraceMinutes(record.startAfter ?? fallbackAfter),
+    endBefore: toGraceMinutes(record.endBefore ?? fallbackBefore),
+    endAfter: toGraceMinutes(record.endAfter ?? fallbackAfter),
+  };
 }
 
 function normalizeEntry(value: unknown): TimecardEntry | null {
@@ -238,10 +257,7 @@ export function extractGracePeriodsConfig(
   const users = Array.isArray(rawConfig.users) ? rawConfig.users : [];
 
   return {
-    company: {
-      before: toGraceMinutes(company.before),
-      after: toGraceMinutes(company.after),
-    },
+    company: toGraceValue(company, company.before, company.after),
     departments:
       departments.length > 0
         ? departments
@@ -259,8 +275,7 @@ export function extractGracePeriodsConfig(
                   typeof department.departmentName === "string" && department.departmentName.trim()
                     ? department.departmentName
                     : "All Departments",
-                before: toGraceMinutes(department.before),
-                after: toGraceMinutes(department.after),
+                ...toGraceValue(department, department.before, department.after),
               } satisfies DepartmentGracePeriod;
             })
             .filter((department): department is DepartmentGracePeriod => department !== null)
@@ -274,8 +289,7 @@ export function extractGracePeriodsConfig(
         return {
           userId: user.userId,
           userName: typeof user.userName === "string" ? user.userName : "",
-          before: toGraceMinutes(user.before),
-          after: toGraceMinutes(user.after),
+          ...toGraceValue(user, user.before, user.after),
         } satisfies UserGracePeriod;
       })
       .filter((user): user is UserGracePeriod => user !== null),
@@ -292,20 +306,26 @@ export function mergeGracePeriodsConfig(
     ...base,
     [GRACE_PERIODS_CONFIG_KEY]: {
       company: {
-        before: toGraceMinutes(gracePeriodsConfig.company.before),
-        after: toGraceMinutes(gracePeriodsConfig.company.after),
+        startBefore: toGraceMinutes(gracePeriodsConfig.company.startBefore),
+        startAfter: toGraceMinutes(gracePeriodsConfig.company.startAfter),
+        endBefore: toGraceMinutes(gracePeriodsConfig.company.endBefore),
+        endAfter: toGraceMinutes(gracePeriodsConfig.company.endAfter),
       },
       departments: gracePeriodsConfig.departments.map((department) => ({
         departmentId: department.departmentId,
         departmentName: department.departmentName,
-        before: toGraceMinutes(department.before),
-        after: toGraceMinutes(department.after),
+        startBefore: toGraceMinutes(department.startBefore),
+        startAfter: toGraceMinutes(department.startAfter),
+        endBefore: toGraceMinutes(department.endBefore),
+        endAfter: toGraceMinutes(department.endAfter),
       })),
       users: gracePeriodsConfig.users.map((user) => ({
         userId: user.userId,
         userName: user.userName,
-        before: toGraceMinutes(user.before),
-        after: toGraceMinutes(user.after),
+        startBefore: toGraceMinutes(user.startBefore),
+        startAfter: toGraceMinutes(user.startAfter),
+        endBefore: toGraceMinutes(user.endBefore),
+        endAfter: toGraceMinutes(user.endAfter),
       })),
     },
   } as Json;
@@ -323,8 +343,10 @@ export function resolveGracePeriodForUser(
     return {
       source: "user",
       label: "User",
-      before: userOverride.before,
-      after: userOverride.after,
+      startBefore: userOverride.startBefore,
+      startAfter: userOverride.startAfter,
+      endBefore: userOverride.endBefore,
+      endAfter: userOverride.endAfter,
     };
   }
 
@@ -338,16 +360,20 @@ export function resolveGracePeriodForUser(
     return {
       source: "department",
       label: departmentOverride.departmentName || "Department",
-      before: departmentOverride.before,
-      after: departmentOverride.after,
+      startBefore: departmentOverride.startBefore,
+      startAfter: departmentOverride.startAfter,
+      endBefore: departmentOverride.endBefore,
+      endAfter: departmentOverride.endAfter,
     };
   }
 
   return {
     source: "company",
     label: "Company",
-    before: normalizedConfig.company.before,
-    after: normalizedConfig.company.after,
+    startBefore: normalizedConfig.company.startBefore,
+    startAfter: normalizedConfig.company.startAfter,
+    endBefore: normalizedConfig.company.endBefore,
+    endAfter: normalizedConfig.company.endAfter,
   };
 }
 
@@ -780,8 +806,10 @@ export function getTimecardExceptionMessages(
   if (firstPunch && schedule.startMinutes !== null) {
     const firstPunchMinutes = getTimeMinutesFromIso(firstPunch.punchedAt);
     const startDifference = firstPunchMinutes - schedule.startMinutes;
+    const earliestAllowedStart = -gracePeriod.startBefore;
+    const latestAllowedStart = gracePeriod.startAfter;
 
-    if (Math.abs(startDifference) > gracePeriod.before) {
+    if (startDifference < earliestAllowedStart || startDifference > latestAllowedStart) {
       messages.push(`Punch in ${describeMinutesDifference(startDifference)} from roster start`);
     }
   }
@@ -800,8 +828,10 @@ export function getTimecardExceptionMessages(
     }
 
     const endDifference = punchOutMinutes - schedule.endMinutes;
+    const earliestAllowedEnd = -gracePeriod.endBefore;
+    const latestAllowedEnd = gracePeriod.endAfter;
 
-    if (Math.abs(endDifference) > gracePeriod.after) {
+    if (endDifference < earliestAllowedEnd || endDifference > latestAllowedEnd) {
       messages.push(`Punch out ${describeMinutesDifference(endDifference)} from roster end`);
     }
   }

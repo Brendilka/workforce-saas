@@ -200,7 +200,12 @@ export function AdminTimecardView({
         getTimecardExceptionMessages(
           records,
           scheduledPatternDays[index],
-          resolvedGracePeriod || { before: 0, after: 0 }
+          resolvedGracePeriod || {
+            startBefore: 0,
+            startAfter: 0,
+            endBefore: 0,
+            endAfter: 0,
+          }
         )
       ),
     [resolvedGracePeriod, scheduledPatternDays, visiblePunchRecords]
@@ -404,8 +409,8 @@ export function AdminTimecardView({
 
       {resolvedGracePeriod && (
         <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
-          Grace period: Before {resolvedGracePeriod.before} min, After {resolvedGracePeriod.after} min
-          {" "}
+          Grace period: Start -{resolvedGracePeriod.startBefore}/+{resolvedGracePeriod.startAfter} min,
+          End -{resolvedGracePeriod.endBefore}/+{resolvedGracePeriod.endAfter} min{" "}
           <span className="font-semibold">
             ({resolvedGracePeriod.source === "user" ? "User" : resolvedGracePeriod.source === "department" ? "Department" : "Company"} level)
           </span>
