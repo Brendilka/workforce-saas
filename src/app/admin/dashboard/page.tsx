@@ -15,6 +15,7 @@ import {
   CalendarClock,
   Calendar,
   Clock,
+  Clock3,
 } from "lucide-react";
 
 const adminFeatures = [
@@ -72,6 +73,13 @@ const adminFeatures = [
     href: "/admin/timecard",
     icon: Clock,
     description: "Review employee schedule versus actual timecard details",
+    disabled: false,
+  },
+  {
+    title: "Punch Stub",
+    href: "/admin/punch-stub",
+    icon: Clock3,
+    description: "Simulate punch in and punch out events for testing",
     disabled: false,
   },
   {

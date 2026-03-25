@@ -7,9 +7,23 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, Minus, Check, AlertCircle, X, Trash2, GripVertical } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
 import type { DayPeriodConfig } from "@/lib/types/database";
 import { getPeriodColor, DEFAULT_PERIOD_COLORS } from "@/lib/day-period-colors";
+import {
+  ALL_DEPARTMENTS_GRACE_ID,
+  extractGracePeriodsConfig,
+  getDefaultGracePeriodsConfig,
+  mergeGracePeriodsConfig,
+  type GracePeriodsConfig,
+} from "@/lib/timecard";
 
 const DEFAULT_DAY_PERIODS: DayPeriodConfig[] = [
   { id: "night", label: "Night", startMinutes: 0, endMinutes: 360, color: "#1e3a5f" },
@@ -20,6 +34,18 @@ const DEFAULT_DAY_PERIODS: DayPeriodConfig[] = [
 
 const MIN_PERIOD_MINUTES = 30;
 const MAX_DAY_PERIODS = 10;
+
+interface SettingsUserOption {
+  userId: string;
+  fullName: string;
+  email: string;
+  employeeNumber: string | null;
+}
+
+interface SettingsDepartmentOption {
+  id: string;
+  name: string;
+}
 
 function minutesToTime(m: number): string {
   const h = Math.floor(m / 60);
@@ -45,11 +71,23 @@ function validateDayPeriods(periods: DayPeriodConfig[]): string | null {
 export function SettingsClient() {
   const [minHoursBetweenShifts, setMinHoursBetweenShifts] = useState<number>(8);
   const [dayPeriods, setDayPeriods] = useState<DayPeriodConfig[]>(DEFAULT_DAY_PERIODS);
+  const [tenantId, setTenantId] = useState<string>("");
+  const [gracePeriodsConfig, setGracePeriodsConfig] = useState<GracePeriodsConfig>(
+    getDefaultGracePeriodsConfig()
+  );
+  const [settingsUsers, setSettingsUsers] = useState<SettingsUserOption[]>([]);
+  const [departmentOptions, setDepartmentOptions] = useState<SettingsDepartmentOption[]>([
+    { id: ALL_DEPARTMENTS_GRACE_ID, name: "All Departments" },
+  ]);
+  const [newGraceUserId, setNewGraceUserId] = useState("");
+  const [newDepartmentId, setNewDepartmentId] = useState(ALL_DEPARTMENTS_GRACE_ID);
+  const [fieldVisibilityConfig, setFieldVisibilityConfig] = useState<Record<string, unknown>>({});
   const [dayPeriodsError, setDayPeriodsError] = useState<string | null>(null);
   const dayBarRef = useRef<HTMLDivElement>(null);
   const draggingHandleIndex = useRef<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [savingGraceLevel, setSavingGraceLevel] = useState<"company" | "department" | "user" | null>(null);
   const [notification, setNotification] = useState<{
     type: "success" | "error";
     message: string;
@@ -68,6 +106,160 @@ export function SettingsClient() {
     loadSettings();
   }, []);
 
+  const updateCompanyGrace = (field: "before" | "after", value: number) => {
+    setGracePeriodsConfig((current) => ({
+      ...current,
+      company: {
+        ...current.company,
+        [field]: value,
+      },
+    }));
+  };
+
+  const updateDepartmentGrace = (departmentId: string, field: "before" | "after", value: number) => {
+    setGracePeriodsConfig((current) => {
+      const nextDepartments = [...current.departments];
+      const existingIndex = nextDepartments.findIndex(
+        (department) => department.departmentId === departmentId
+      );
+
+      if (existingIndex === -1) {
+        return current;
+      }
+
+      nextDepartments[existingIndex] = {
+        ...nextDepartments[existingIndex],
+        [field]: value,
+      };
+
+      return {
+        ...current,
+        departments: nextDepartments,
+      };
+    });
+  };
+
+  const addDepartmentGrace = () => {
+    setGracePeriodsConfig((current) => {
+      if (current.departments.some((department) => department.departmentId === newDepartmentId)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        departments: [
+          ...current.departments,
+          {
+            departmentId: newDepartmentId,
+            departmentName:
+              departmentOptions.find((department) => department.id === newDepartmentId)?.name ||
+              "All Departments",
+            before: 0,
+            after: 0,
+          },
+        ],
+      };
+    });
+  };
+
+  const removeDepartmentGrace = (departmentId: string) => {
+    setGracePeriodsConfig((current) => ({
+      ...current,
+      departments: current.departments.filter(
+        (department) => department.departmentId !== departmentId
+      ),
+    }));
+  };
+
+  const updateUserGrace = (userId: string, field: "before" | "after", value: number) => {
+    setGracePeriodsConfig((current) => {
+      const nextUsers = [...current.users];
+      const existingIndex = nextUsers.findIndex((user) => user.userId === userId);
+
+      if (existingIndex === -1) {
+        return current;
+      }
+
+      nextUsers[existingIndex] = {
+        ...nextUsers[existingIndex],
+        [field]: value,
+      };
+
+      return {
+        ...current,
+        users: nextUsers,
+      };
+    });
+  };
+
+  const addUserGrace = () => {
+    if (!newGraceUserId) {
+      return;
+    }
+
+    setGracePeriodsConfig((current) => {
+      if (current.users.some((user) => user.userId === newGraceUserId)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        users: [
+          ...current.users,
+          {
+            userId: newGraceUserId,
+            userName:
+              settingsUsers.find((user) => user.userId === newGraceUserId)?.fullName || "",
+            before: 0,
+            after: 0,
+          },
+        ],
+      };
+    });
+  };
+
+  const removeUserGrace = (userId: string) => {
+    setGracePeriodsConfig((current) => ({
+      ...current,
+      users: current.users.filter((user) => user.userId !== userId),
+    }));
+  };
+
+  const departmentRows = gracePeriodsConfig.departments.map((department) => ({
+    ...department,
+    departmentName:
+      departmentOptions.find((option) => option.id === department.departmentId)?.name ||
+      department.departmentName ||
+      "All Departments",
+  }));
+
+  const availableDepartmentOptions = departmentOptions.filter(
+    (option) =>
+      !gracePeriodsConfig.departments.some(
+        (department) => department.departmentId === option.id
+      )
+  );
+
+  const userRows = gracePeriodsConfig.users.map((user) => ({
+    ...user,
+    userName:
+      settingsUsers.find((option) => option.userId === user.userId)?.fullName ||
+      user.userName,
+  }));
+
+  const availableUserOptions = settingsUsers.filter(
+    (option) => !gracePeriodsConfig.users.some((user) => user.userId === option.userId)
+  );
+
+  const parseGraceInputValue = (value: string): number => {
+    if (!value.trim()) {
+      return 0;
+    }
+
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  };
+
   const loadSettings = async () => {
     setIsLoading(true);
     try {
@@ -83,12 +275,26 @@ export function SettingsClient() {
         console.warn("Unable to determine tenant");
         return;
       }
+      setTenantId(tenantId);
 
-      const { data, error } = await supabase
-        .from("tenant_config")
-        .select("min_hours_between_shifts, day_periods")
-        .eq("tenant_id", tenantId)
-        .single();
+      const [{ data, error }, { data: profiles, error: profilesError }, { data: departments, error: departmentsError }] = await Promise.all([
+        supabase
+          .from("tenant_config")
+          .select("min_hours_between_shifts, day_periods, field_visibility_config")
+          .eq("tenant_id", tenantId)
+          .single(),
+        supabase
+          .from("profiles")
+          .select("user_id, first_name, last_name, email, employee_number")
+          .eq("tenant_id", tenantId)
+          .not("user_id", "is", null)
+          .order("first_name"),
+        supabase
+          .from("departments")
+          .select("id, name")
+          .eq("tenant_id", tenantId)
+          .order("name"),
+      ]);
 
       if (error && error.code !== "PGRST116") {
         console.error("Error loading settings:", error);
@@ -96,6 +302,7 @@ export function SettingsClient() {
         const row = data as unknown as {
           min_hours_between_shifts: number | null;
           day_periods: DayPeriodConfig[] | null;
+          field_visibility_config: Record<string, unknown> | null;
         };
         if (row.min_hours_between_shifts != null) {
           setMinHoursBetweenShifts(row.min_hours_between_shifts);
@@ -108,6 +315,58 @@ export function SettingsClient() {
             color: p.color && /^#[0-9A-Fa-f]{6}$/.test(String(p.color).trim()) ? String(p.color).trim() : DEFAULT_PERIOD_COLORS[i % DEFAULT_PERIOD_COLORS.length],
           })));
         }
+        const loadedFieldVisibilityConfig =
+          row.field_visibility_config && typeof row.field_visibility_config === "object"
+            ? row.field_visibility_config
+            : {};
+        setFieldVisibilityConfig(loadedFieldVisibilityConfig);
+        setGracePeriodsConfig(extractGracePeriodsConfig(loadedFieldVisibilityConfig as any));
+      } else {
+        setGracePeriodsConfig(getDefaultGracePeriodsConfig());
+      }
+
+      if (profilesError) {
+        console.error("Error loading users for grace periods:", profilesError);
+      } else {
+        const userOptions = (profiles || [])
+          .map((profile) => {
+            const userId =
+              typeof profile.user_id === "string" && profile.user_id.trim()
+                ? profile.user_id
+                : null;
+
+            if (!userId) {
+              return null;
+            }
+
+            return {
+              userId,
+              fullName:
+                `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email,
+              email: profile.email,
+              employeeNumber: profile.employee_number,
+            } satisfies SettingsUserOption;
+          })
+          .filter((user): user is SettingsUserOption => user !== null);
+
+        setSettingsUsers(userOptions);
+        setNewGraceUserId((current) => current || userOptions[0]?.userId || "");
+      }
+
+      if (departmentsError) {
+        console.error("Error loading departments for grace periods:", departmentsError);
+      } else {
+        const nextDepartmentOptions = [
+          { id: ALL_DEPARTMENTS_GRACE_ID, name: "All Departments" },
+          ...((departments || []).map((department) => ({
+            id: department.id,
+            name: department.name,
+          }))),
+        ];
+        setDepartmentOptions(nextDepartmentOptions);
+        setNewDepartmentId(
+          (current) => current || nextDepartmentOptions[0]?.id || ALL_DEPARTMENTS_GRACE_ID
+        );
       }
     } catch (error) {
       console.error("Error loading settings:", error);
@@ -165,6 +424,56 @@ export function SettingsClient() {
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const saveGracePeriods = async (level: "company" | "department" | "user") => {
+    if (!tenantId) {
+      setNotification({
+        type: "error",
+        message: "Unable to determine tenant. Please refresh and try again.",
+      });
+      return;
+    }
+
+    setSavingGraceLevel(level);
+
+    try {
+      const nextFieldVisibilityConfig = mergeGracePeriodsConfig(
+        fieldVisibilityConfig as any,
+        gracePeriodsConfig
+      );
+
+      const { error } = await supabase.from("tenant_config").upsert(
+        {
+          tenant_id: tenantId,
+          field_visibility_config: nextFieldVisibilityConfig as any,
+        } as any,
+        {
+          onConflict: "tenant_id",
+        }
+      );
+
+      if (error) {
+        throw error;
+      }
+
+      setFieldVisibilityConfig((nextFieldVisibilityConfig || {}) as Record<string, unknown>);
+      setNotification({
+        type: "success",
+        message: `${
+          level === "company" ? "Company" : level === "department" ? "Department" : "User"
+        } grace period saved successfully!`,
+      });
+    } catch (error) {
+      console.error("Error saving grace periods:", error);
+      setNotification({
+        type: "error",
+        message:
+          error instanceof Error ? error.message : "Failed to save grace period settings.",
+      });
+    } finally {
+      setSavingGraceLevel(null);
     }
   };
 
@@ -325,7 +634,7 @@ export function SettingsClient() {
     <div className="flex flex-col gap-6">
       <PageHeader title="Settings" description="Configure system settings" />
 
-      <Card className="p-6 max-w-2xl">
+      <Card className="max-w-2xl p-6">
         {isLoading ? (
           <div className="text-sm text-gray-500">Loading settings...</div>
         ) : (
@@ -462,6 +771,285 @@ export function SettingsClient() {
               <Button onClick={saveSettings} disabled={isSaving}>
                 {isSaving ? "Saving..." : "Save Settings"}
               </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card className="max-w-5xl p-6">
+        {isLoading ? (
+          <div className="text-sm text-gray-500">Loading grace periods...</div>
+        ) : (
+          <div className="space-y-6">
+            <div>
+              <Label className="text-base font-semibold mb-2 block">Grace Periods</Label>
+              <p className="text-sm text-gray-500">
+                User level overrides Department level, and Department level overrides Company level.
+              </p>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-3">
+              <div className="rounded-lg border border-gray-200 p-4">
+                <Label className="text-base font-semibold mb-4 block">Company level</Label>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="companyGraceBefore" className="mb-2 block text-sm font-medium">
+                      Before
+                    </Label>
+                    <Input
+                      id="companyGraceBefore"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={gracePeriodsConfig.company.before}
+                      onChange={(event) =>
+                        updateCompanyGrace("before", parseGraceInputValue(event.target.value))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="companyGraceAfter" className="mb-2 block text-sm font-medium">
+                      After
+                    </Label>
+                    <Input
+                      id="companyGraceAfter"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={gracePeriodsConfig.company.after}
+                      onChange={(event) =>
+                        updateCompanyGrace("after", parseGraceInputValue(event.target.value))
+                      }
+                    />
+                  </div>
+                  <Button
+                    onClick={() => saveGracePeriods("company")}
+                    disabled={savingGraceLevel !== null}
+                  >
+                    {savingGraceLevel === "company" ? "Saving..." : "Save Company Level"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 p-4">
+                <Label className="text-base font-semibold mb-4 block">Department level</Label>
+                <div className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-[1.4fr_auto] md:items-end">
+                    <div>
+                      <Label className="mb-2 block text-sm font-medium">Department</Label>
+                      <Select value={newDepartmentId} onValueChange={setNewDepartmentId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableDepartmentOptions.length === 0 ? (
+                            <SelectItem value={ALL_DEPARTMENTS_GRACE_ID} disabled>
+                              No more departments to add
+                            </SelectItem>
+                          ) : (
+                            availableDepartmentOptions.map((department) => (
+                              <SelectItem key={department.id} value={department.id}>
+                                {department.name}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={addDepartmentGrace}
+                      disabled={availableDepartmentOptions.length === 0}
+                      className="gap-1"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add Record
+                    </Button>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-md border border-gray-200">
+                    <table className="w-full min-w-[420px] text-sm">
+                      <thead className="bg-gray-50 text-gray-700">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Department</th>
+                          <th className="px-3 py-2 text-left font-medium">Before</th>
+                          <th className="px-3 py-2 text-left font-medium">After</th>
+                          <th className="px-3 py-2 text-right font-medium">Remove</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {departmentRows.map((department) => (
+                          <tr key={department.departmentId} className="border-t border-gray-200">
+                            <td className="px-3 py-2 font-medium">{department.departmentName}</td>
+                            <td className="px-3 py-2">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={department.before}
+                                onChange={(event) =>
+                                  updateDepartmentGrace(
+                                    department.departmentId,
+                                    "before",
+                                    parseGraceInputValue(event.target.value)
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={department.after}
+                                onChange={(event) =>
+                                  updateDepartmentGrace(
+                                    department.departmentId,
+                                    "after",
+                                    parseGraceInputValue(event.target.value)
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeDepartmentGrace(department.departmentId)}
+                                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <Button
+                    onClick={() => saveGracePeriods("department")}
+                    disabled={savingGraceLevel !== null}
+                  >
+                    {savingGraceLevel === "department" ? "Saving..." : "Save Department Level"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 p-4">
+                <Label className="text-base font-semibold mb-4 block">User level</Label>
+                <div className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-[1.4fr_auto] md:items-end">
+                    <div>
+                      <Label className="mb-2 block text-sm font-medium">User</Label>
+                      <Select value={newGraceUserId} onValueChange={setNewGraceUserId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select user" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableUserOptions.length === 0 ? (
+                            <SelectItem value={newGraceUserId || "__none__"} disabled>
+                              No more users to add
+                            </SelectItem>
+                          ) : (
+                            availableUserOptions.map((user) => (
+                              <SelectItem key={user.userId} value={user.userId}>
+                                {user.fullName}
+                                {user.employeeNumber ? ` (${user.employeeNumber})` : ""}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={addUserGrace}
+                      disabled={!newGraceUserId || availableUserOptions.length === 0}
+                      className="gap-1"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add Record
+                    </Button>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-md border border-gray-200">
+                    <table className="w-full min-w-[520px] text-sm">
+                      <thead className="bg-gray-50 text-gray-700">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">User</th>
+                          <th className="px-3 py-2 text-left font-medium">Before</th>
+                          <th className="px-3 py-2 text-left font-medium">After</th>
+                          <th className="px-3 py-2 text-right font-medium">Remove</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {userRows.map((user) => (
+                          <tr key={user.userId} className="border-t border-gray-200">
+                            <td className="px-3 py-2">
+                              <div className="font-medium">{user.userName}</div>
+                              <div className="text-xs text-gray-500">
+                                {settingsUsers.find((option) => option.userId === user.userId)?.email || ""}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={user.before}
+                                onChange={(event) =>
+                                  updateUserGrace(
+                                    user.userId,
+                                    "before",
+                                    parseGraceInputValue(event.target.value)
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={user.after}
+                                onChange={(event) =>
+                                  updateUserGrace(
+                                    user.userId,
+                                    "after",
+                                    parseGraceInputValue(event.target.value)
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeUserGrace(user.userId)}
+                                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <Button
+                    onClick={() => saveGracePeriods("user")}
+                    disabled={savingGraceLevel !== null}
+                  >
+                    {savingGraceLevel === "user" ? "Saving..." : "Save User Level"}
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         )}

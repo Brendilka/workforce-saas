@@ -2,10 +2,10 @@ import { redirect } from "next/navigation";
 import { createClient, getUser, getUserRole } from "@/lib/supabase/server";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { PageHeader } from "@/components/layout/page-header";
-import { AdminTimecardView } from "@/components/timecard/admin-timecard-view";
+import { PunchStubClient } from "@/components/timecard/punch-stub-client";
 import type { TimecardEmployeeSummary } from "@/lib/timecard";
 
-export default async function AdminTimecardPage() {
+export default async function AdminPunchStubPage() {
   const user = await getUser();
   const role = await getUserRole();
 
@@ -18,13 +18,11 @@ export default async function AdminTimecardPage() {
   }
 
   const tenantId = user.user_metadata?.tenant_id;
-
   if (!tenantId) {
     redirect("/login?error=no_tenant");
   }
 
   const supabase = await createClient();
-
   const [{ data: usersData }, { data: profilesData }] = await Promise.all([
     supabase
       .from("users")
@@ -47,45 +45,34 @@ export default async function AdminTimecardPage() {
   const userOptions: TimecardEmployeeSummary[] = (usersData || [])
     .map((tenantUser) => {
       const profile = profileByUserId.get(tenantUser.id);
-
-      if (!profile) {
-        return null;
-      }
+      if (!profile) return null;
 
       return {
         userId: tenantUser.id,
         profileId: profile.id,
-        fullName:
-          `${profile.first_name} ${profile.last_name}`.trim() || profile.email,
+        fullName: `${profile.first_name} ${profile.last_name}`.trim() || profile.email,
         email: profile.email,
         employeeNumber: profile.employee_number,
         role: tenantUser.role,
       } satisfies TimecardEmployeeSummary;
     })
-    .filter((option): option is TimecardEmployeeSummary => option !== null);
+    .filter((value): value is TimecardEmployeeSummary => value !== null);
 
   const userName = user.user_metadata?.full_name || user.email || "Admin";
   const userInitials = userName
     .split(" ")
-    .map((n: string) => n[0])
+    .map((name: string) => name[0])
     .join("")
     .toUpperCase()
     .slice(0, 2);
 
   return (
-    <DashboardLayout
-      userRole="admin"
-      userName={userName}
-      userInitials={userInitials}
-    >
+    <DashboardLayout userRole="admin" userName={userName} userInitials={userInitials}>
       <PageHeader
-        title="Timecard"
-        description="Select any user and review that employee's saved timecard"
+        title="Punch Stub"
+        description="Simulate punch in and punch out events for a selected user"
       />
-      <AdminTimecardView
-        userOptions={userOptions}
-        initialUserId={userOptions[0]?.userId}
-      />
+      <PunchStubClient userOptions={userOptions} initialUserId={userOptions[0]?.userId} />
     </DashboardLayout>
   );
 }

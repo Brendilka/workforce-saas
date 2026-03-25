@@ -82,6 +82,11 @@ const adminNavItems = [
     href: "/admin/dashboard",
     icon: LayoutDashboard,
   },
+  {
+    title: "Timecard",
+    href: "/admin/timecard",
+    icon: Clock,
+  },
 ];
 
 const HELP_SUPPORT_URL = "https://onmanylevels.atlassian.net/servicedesk/customer/portal/235";

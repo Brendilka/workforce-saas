@@ -69,6 +69,55 @@ interface SavedPattern {
   created_at?: string;
 }
 
+interface AssignableUser {
+  userId: string;
+  profileId: string;
+  fullName: string;
+  email: string;
+  role: "admin" | "manager" | "employee";
+  employeeNumber: string | null;
+  customFields: Json | null;
+}
+
+interface AssignmentAvailability {
+  isSelected: boolean;
+  isLocked: boolean;
+  lockedPatternId: string | null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getAssignedPatternIds(customFields: Json | null | undefined): string[] {
+  if (!isRecord(customFields) || !Array.isArray(customFields.assigned_roster_pattern_ids)) {
+    return [];
+  }
+
+  return customFields.assigned_roster_pattern_ids.filter(
+    (value): value is string => typeof value === "string"
+  );
+}
+
+function withAssignedPatternIds(
+  customFields: Json | null | undefined,
+  patternIds: string[]
+): Json {
+  const base = isRecord(customFields) ? { ...customFields } : {};
+
+  return {
+    ...base,
+    assigned_roster_pattern_ids: patternIds,
+  } as Json;
+}
+
+function getUserAssignedPatternId(
+  customFields: Json | null | undefined
+): string | null {
+  const patternIds = getAssignedPatternIds(customFields);
+  return patternIds[0] || null;
+}
+
 const DEFAULT_DAY_PERIODS: DayPeriodConfig[] = [
   { id: "night", label: "Night", startMinutes: 0, endMinutes: 360 },
   { id: "morning", label: "Morning", startMinutes: 360, endMinutes: 720 },
@@ -136,6 +185,11 @@ export function RosterPatternsClient() {
   const [weeksReductionDialog, setWeeksReductionDialog] = useState<{show: boolean, targetWeeks: number, nonEmptyWeeks: number[]}>({show: false, targetWeeks: 0, nonEmptyWeeks: []});
   const [dayPeriods, setDayPeriods] = useState<DayPeriodConfig[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftTypeOption[] | null>(null);
+  const [tenantUsers, setTenantUsers] = useState<AssignableUser[]>([]);
+  const [patternAssignments, setPatternAssignments] = useState<Record<string, string[]>>({});
+  const [assignmentDialog, setAssignmentDialog] = useState<{open: boolean; pattern: SavedPattern | null}>({ open: false, pattern: null });
+  const [selectedAssignmentUserIds, setSelectedAssignmentUserIds] = useState<string[]>([]);
+  const [savingAssignments, setSavingAssignments] = useState(false);
 
   // Enterprise allocation features
   const [showExplanation, setShowExplanation] = useState(false);
@@ -154,6 +208,7 @@ export function RosterPatternsClient() {
     loadWorkSchedules();
     loadSavedPatterns();
     loadTenantConfig();
+    loadAssignableUsers();
   }, []);
 
   useEffect(() => {
@@ -337,6 +392,60 @@ export function RosterPatternsClient() {
       console.error('Error loading saved patterns:', error);
     } finally {
       setLoadingPatterns(false);
+    }
+  };
+
+  const loadAssignableUsers = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const tenantId = user?.user_metadata?.tenant_id as string | undefined;
+      if (!tenantId) return;
+
+      const [{ data: usersData, error: usersError }, { data: profilesData, error: profilesError }] =
+        await Promise.all([
+          supabase
+            .from("users")
+            .select("id, email, role")
+            .eq("tenant_id", tenantId)
+            .order("email"),
+          supabase
+            .from("profiles")
+            .select("id, user_id, first_name, last_name, email, employee_number, custom_fields")
+            .eq("tenant_id", tenantId)
+            .order("first_name"),
+        ]);
+
+      if (usersError) throw usersError;
+      if (profilesError) throw profilesError;
+
+      const userById = new Map((usersData || []).map((tenantUser) => [tenantUser.id, tenantUser]));
+      const nextUsers: AssignableUser[] = (profilesData || [])
+        .filter((profile) => profile.user_id && userById.has(profile.user_id))
+        .map((profile) => {
+          const tenantUser = userById.get(profile.user_id as string)!;
+          return {
+            userId: tenantUser.id,
+            profileId: profile.id,
+            fullName: `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email,
+            email: profile.email,
+            role: tenantUser.role,
+            employeeNumber: profile.employee_number,
+            customFields: profile.custom_fields,
+          };
+        });
+
+      const assignments: Record<string, string[]> = {};
+      nextUsers.forEach((tenantUser) => {
+        getAssignedPatternIds(tenantUser.customFields).forEach((patternId) => {
+          if (!assignments[patternId]) assignments[patternId] = [];
+          assignments[patternId].push(tenantUser.userId);
+        });
+      });
+
+      setTenantUsers(nextUsers);
+      setPatternAssignments(assignments);
+    } catch (error) {
+      console.error("Error loading assignable users:", error);
     }
   };
 
@@ -2090,9 +2199,33 @@ export function RosterPatternsClient() {
     const confirmed = confirm('Delete this pattern?');
     if (!confirmed) return;
     try {
+      const assignedUsers = patternAssignments[id] || [];
+      if (assignedUsers.length > 0) {
+        await Promise.all(
+          assignedUsers.map(async (userId) => {
+            const tenantUser = tenantUsers.find((candidate) => candidate.userId === userId);
+            if (!tenantUser) return;
+
+            const nextPatternIds = getAssignedPatternIds(tenantUser.customFields).filter(
+              (patternId) => patternId !== id
+            );
+
+            const { error } = await supabase
+              .from("profiles")
+              .update({
+                custom_fields: withAssignedPatternIds(tenantUser.customFields, nextPatternIds),
+              })
+              .eq("id", tenantUser.profileId);
+
+            if (error) throw error;
+          })
+        );
+      }
+
       const { error } = await supabase.from('roster_patterns').delete().eq('id', id);
       if (error) throw error;
       await loadSavedPatterns();
+      await loadAssignableUsers();
       setSavedAllocationMode(allocationMode);
     } catch (error) {
       console.error('Error deleting pattern:', error);
@@ -2116,6 +2249,124 @@ export function RosterPatternsClient() {
     setCopySourcePattern(pattern);
     setCopyName(getDefaultCopyName(pattern.shift_id || 'Untitled'));
     setIsCopyDialogOpen(true);
+  };
+
+  const openAssignmentDialog = (pattern: SavedPattern) => {
+    setAssignmentDialog({ open: true, pattern });
+    setSelectedAssignmentUserIds(patternAssignments[pattern.id] || []);
+  };
+
+  const toggleAssignedUser = (userId: string) => {
+    const availability = getAssignmentAvailability(userId);
+    if (availability.isLocked) {
+      return;
+    }
+
+    setSelectedAssignmentUserIds((current) =>
+      current.includes(userId)
+        ? current.filter((id) => id !== userId)
+        : [...current, userId]
+    );
+  };
+
+  const getPatternNameById = (patternId: string | null | undefined) => {
+    if (!patternId) {
+      return "";
+    }
+
+    return savedPatterns.find((pattern) => pattern.id === patternId)?.shift_id || patternId;
+  };
+
+  const getAssignmentAvailability = (userId: string): AssignmentAvailability => {
+    const activePatternId = assignmentDialog.pattern?.id || null;
+    const tenantUser = tenantUsers.find((candidate) => candidate.userId === userId);
+    const assignedPatternId = tenantUser ? getUserAssignedPatternId(tenantUser.customFields) : null;
+    const isSelected = selectedAssignmentUserIds.includes(userId);
+    const isLocked = Boolean(
+      assignedPatternId && activePatternId && assignedPatternId !== activePatternId
+    );
+
+    return {
+      isSelected,
+      isLocked,
+      lockedPatternId: isLocked ? assignedPatternId : null,
+    };
+  };
+
+  const savePatternAssignments = async () => {
+    const pattern = assignmentDialog.pattern;
+    if (!pattern) return;
+
+    setSavingAssignments(true);
+    try {
+      const previouslyAssignedUserIds = patternAssignments[pattern.id] || [];
+      const affectedUserIds = Array.from(
+        new Set([...previouslyAssignedUserIds, ...selectedAssignmentUserIds])
+      );
+
+      const updates = affectedUserIds.map(async (userId) => {
+        const tenantUser = tenantUsers.find((candidate) => candidate.userId === userId);
+        if (!tenantUser) return null;
+
+        const currentPatternId = getUserAssignedPatternId(tenantUser.customFields);
+        if (
+          selectedAssignmentUserIds.includes(userId) &&
+          currentPatternId &&
+          currentPatternId !== pattern.id
+        ) {
+          return null;
+        }
+
+        const nextPatternIds = selectedAssignmentUserIds.includes(userId)
+          ? [pattern.id]
+          : currentPatternId === pattern.id
+            ? []
+            : currentPatternId
+              ? [currentPatternId]
+              : [];
+
+        const nextCustomFields = withAssignedPatternIds(tenantUser.customFields, nextPatternIds);
+        const { error } = await supabase
+          .from("profiles")
+          .update({ custom_fields: nextCustomFields })
+          .eq("id", tenantUser.profileId);
+
+        if (error) throw error;
+
+        return {
+          ...tenantUser,
+          customFields: nextCustomFields,
+        };
+      });
+
+      const updatedUsers = (await Promise.all(updates)).filter(
+        (value): value is AssignableUser => value !== null
+      );
+
+      setTenantUsers((current) =>
+        current.map((tenantUser) =>
+          updatedUsers.find((updated) => updated.userId === tenantUser.userId) || tenantUser
+        )
+      );
+
+      setPatternAssignments((current) => ({
+        ...current,
+        [pattern.id]: [...selectedAssignmentUserIds],
+      }));
+      await loadAssignableUsers();
+      setAssignmentDialog({ open: false, pattern: null });
+      setSelectedAssignmentUserIds([]);
+    } catch (error) {
+      console.error("Error saving pattern assignments:", error);
+      alert("Failed to save pattern assignments.");
+    } finally {
+      setSavingAssignments(false);
+    }
+  };
+
+  const getAssignedUsersForPattern = (patternId: string) => {
+    const assignedUserIds = patternAssignments[patternId] || [];
+    return tenantUsers.filter((tenantUser) => assignedUserIds.includes(tenantUser.userId));
   };
 
   const handleCopyPattern = async () => {
@@ -2220,7 +2471,7 @@ export function RosterPatternsClient() {
     <>
       {/* Remove Row Confirmation Dialog */}
       <Dialog open={removeConfirmation.show} onOpenChange={(open) => !open && setRemoveConfirmation({rowId: '', show: false})}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-6xl">
           <DialogTitle>Remove Week</DialogTitle>
           <DialogDescription>
             Are you sure you want to remove this non-empty week?
@@ -2309,6 +2560,125 @@ export function RosterPatternsClient() {
               disabled={isCopying}
             >
               {isCopying ? 'Copying…' : 'Copy'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={assignmentDialog.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAssignmentDialog({ open: false, pattern: null });
+            setSelectedAssignmentUserIds([]);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[96vw] xl:max-w-7xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogTitle>Assign Roster Pattern</DialogTitle>
+          <DialogDescription>
+            Choose one or more users for {assignmentDialog.pattern?.shift_id || "this pattern"}.
+          </DialogDescription>
+          <div className="mt-4 grid flex-1 min-h-0 gap-4 md:grid-cols-[0.9fr_1.55fr]">
+            <div className="min-w-0">
+              <div className="mb-2 text-sm font-semibold text-gray-700">All Users</div>
+              <div className="max-h-80 overflow-y-auto space-y-2">
+                {tenantUsers.length === 0 ? (
+                  <div className="text-sm text-gray-600">No users available.</div>
+                ) : (
+                  tenantUsers.map((tenantUser) => {
+                    const availability = getAssignmentAvailability(tenantUser.userId);
+                    const lockedPatternName = getPatternNameById(availability.lockedPatternId);
+                    return (
+                      <button
+                        key={tenantUser.userId}
+                        type="button"
+                        className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
+                          availability.isLocked
+                            ? "cursor-not-allowed border-gray-200 bg-gray-100 opacity-60"
+                            : availability.isSelected
+                            ? "border-blue-500 bg-blue-50"
+                            : "border-gray-200 bg-white hover:border-gray-300"
+                        }`}
+                        onClick={() => toggleAssignedUser(tenantUser.userId)}
+                        disabled={availability.isLocked}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-medium text-sm">{tenantUser.fullName}</div>
+                            <div className="text-xs text-gray-500">
+                              {tenantUser.email}
+                              {tenantUser.employeeNumber ? ` · #${tenantUser.employeeNumber}` : ""}
+                            </div>
+                            {availability.isLocked && (
+                              <div className="mt-1 text-[11px] text-gray-500">
+                                Already assigned to {lockedPatternName}
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-xs font-semibold uppercase text-gray-500">
+                            {tenantUser.role}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="min-w-0">
+              <div className="mb-2 text-sm font-semibold text-gray-700">Assigned Users</div>
+              <div className="max-h-80 overflow-auto rounded-md border border-gray-200 bg-gray-50">
+                {tenantUsers.filter((tenantUser) => selectedAssignmentUserIds.includes(tenantUser.userId)).length === 0 ? (
+                  <div className="p-3 text-sm text-gray-500">No users assigned yet.</div>
+                ) : (
+                  <table className="min-w-[760px] w-full text-xs bg-white table-auto">
+                    <thead className="sticky top-0 bg-gray-100 text-gray-700">
+                      <tr>
+                        <th className="px-2 py-2 text-left font-semibold w-10">#</th>
+                        <th className="px-2 py-2 text-left font-semibold">Name</th>
+                        <th className="px-2 py-2 text-left font-semibold">Email</th>
+                        <th className="px-2 py-2 text-left font-semibold w-28">Employee #</th>
+                        <th className="px-2 py-2 text-left font-semibold w-24">Account Type</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tenantUsers
+                        .filter((tenantUser) => selectedAssignmentUserIds.includes(tenantUser.userId))
+                        .map((tenantUser, index) => (
+                          <tr key={`assigned-${tenantUser.userId}`} className="border-t border-gray-200">
+                            <td className="px-2 py-2 whitespace-nowrap text-gray-600">{index + 1}</td>
+                            <td className="px-2 py-2 whitespace-nowrap font-medium text-gray-900">{tenantUser.fullName}</td>
+                            <td className="px-2 py-2 whitespace-nowrap text-gray-600">{tenantUser.email}</td>
+                            <td className="px-2 py-2 whitespace-nowrap text-gray-600">{tenantUser.employeeNumber || "-"}</td>
+                            <td className="px-2 py-2 whitespace-nowrap text-gray-600 capitalize">{tenantUser.role}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="mt-6 flex flex-wrap gap-2 justify-end shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setAssignmentDialog({ open: false, pattern: null });
+                setSelectedAssignmentUserIds([]);
+              }}
+              disabled={savingAssignments}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={savePatternAssignments}
+              disabled={savingAssignments}
+            >
+              {savingAssignments ? "Saving..." : "Save Assignments"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2430,51 +2800,78 @@ export function RosterPatternsClient() {
               <div className="text-sm text-gray-600">No patterns saved yet.</div>
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {savedPatterns.map((p) => (
-                  <div
-                    key={p.id}
-                    className="group border border-gray-300 rounded-lg p-4 cursor-pointer hover:border-blue-500 relative"
-                    onClick={() => handleOpenPattern(p)}
-                  >
-                    <div className="flex justify-between items-start gap-2">
-                      <div>
-                        <div className="font-semibold">{p.shift_id || 'Untitled'}</div>
-                        <div className="text-xs text-gray-600">Weeks: {p.weeks_pattern}</div>
-                        {p.start_date && (
-                          <div className="text-xs text-gray-600">Start: {p.start_date}</div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-blue-600 opacity-0 group-hover:opacity-100"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openCopyDialog(p);
-                          }}
-                          aria-label="Copy pattern"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-red-600 opacity-0 group-hover:opacity-100"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeletePattern(p.id);
-                          }}
-                          aria-label="Delete pattern"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                {savedPatterns.map((p) => {
+                  const assignedUsers = getAssignedUsersForPattern(p.id);
+
+                  return (
+                    <div
+                      key={p.id}
+                      className="group border border-gray-300 rounded-lg p-4 cursor-pointer hover:border-blue-500 relative"
+                      onClick={() => handleOpenPattern(p)}
+                    >
+                      <div className="flex justify-between items-start gap-2 min-h-[128px]">
+                        <div className="pr-4">
+                          <div className="font-semibold">{p.shift_id || 'Untitled'}</div>
+                          <div className="text-xs text-gray-600">Weeks: {p.weeks_pattern}</div>
+                          {p.start_date && (
+                            <div className="text-xs text-gray-600">Start: {p.start_date}</div>
+                          )}
+                          <div className="mt-2 text-xs text-gray-600">
+                            Assigned Users: {assignedUsers.length === 0 ? "None" : assignedUsers.length}
+                          </div>
+                          {assignedUsers.length > 0 && (
+                            <div className="mt-1 text-xs text-gray-500">
+                              {assignedUsers.slice(0, 3).map((user) => user.fullName).join(", ")}
+                              {assignedUsers.length > 3 ? ` +${assignedUsers.length - 3} more` : ""}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end justify-between self-stretch gap-3">
+                          <div className="flex items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-blue-600 opacity-0 group-hover:opacity-100"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openCopyDialog(p);
+                              }}
+                              aria-label="Copy pattern"
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-red-600 opacity-0 group-hover:opacity-100"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeletePattern(p.id);
+                              }}
+                              aria-label="Delete pattern"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 text-gray-700"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openAssignmentDialog(p);
+                            }}
+                          >
+                            Assign
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>
