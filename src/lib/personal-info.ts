@@ -68,12 +68,19 @@ export async function getPersonalInfoPageData(
 
   const fieldVisibilityConfig = configData?.field_visibility_config || {};
 
+  // Ensure the page config has the required properties
+  const employeePersonalInfoConfig = fieldVisibilityConfig["employee-personal-info"];
+  const isValidPageConfig = employeePersonalInfoConfig &&
+    typeof employeePersonalInfoConfig === 'object' &&
+    'visibleFields' in employeePersonalInfoConfig &&
+    'fieldGroups' in employeePersonalInfoConfig &&
+    Array.isArray(employeePersonalInfoConfig.visibleFields) &&
+    Array.isArray(employeePersonalInfoConfig.fieldGroups);
+
   return {
     profile,
     profileError: null,
-    pageConfig:
-      fieldVisibilityConfig["employee-personal-info"] ||
-      DEFAULT_PERSONAL_INFO_PAGE_CONFIG,
+    pageConfig: isValidPageConfig ? employeePersonalInfoConfig as PageConfig : DEFAULT_PERSONAL_INFO_PAGE_CONFIG,
     customFieldDefinitions: (customFieldDefs || []) as CustomFieldDefinition[],
     departments: departments || [],
   };
