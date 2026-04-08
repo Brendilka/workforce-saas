@@ -331,6 +331,126 @@ export function mergeGracePeriodsConfig(
   } as Json;
 }
 
+export interface AwardEngineConfig {
+  ordinaryHours?: {
+    weeklyTargetHours?: number;
+    maxPerDayHours?: number;
+    minPaidOrdinaryHours?: number;
+    rosteredDayOffAccrualHours?: number;
+    requireOrdinaryReconciliation?: boolean;
+  };
+  rounding?: {
+    intervalMinutes?: number;
+    thresholdMinutes?: number;
+  };
+  publicHoliday?: {
+    payCode?: string;
+    defaultDayType?: string;
+  };
+}
+
+const AWARD_ENGINE_CONFIG_KEY = "awardEngineConfig";
+
+function toPositiveNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, value);
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : undefined;
+  }
+  return undefined;
+}
+
+export function getDefaultAwardEngineConfig(): AwardEngineConfig {
+  return {
+    ordinaryHours: {
+      weeklyTargetHours: 38,
+      maxPerDayHours: 10,
+      minPaidOrdinaryHours: 4,
+      rosteredDayOffAccrualHours: 0,
+      requireOrdinaryReconciliation: false,
+    },
+    rounding: {
+      intervalMinutes: 15,
+      thresholdMinutes: 7,
+    },
+    publicHoliday: {
+      payCode: "PH",
+      defaultDayType: "Public Holiday",
+    },
+  };
+}
+
+export function extractAwardEngineConfig(
+  fieldVisibilityConfig: Json | null | undefined
+): AwardEngineConfig {
+  const configContainer = isRecord(fieldVisibilityConfig) ? fieldVisibilityConfig : {};
+  const rawConfig = isRecord(configContainer[AWARD_ENGINE_CONFIG_KEY])
+    ? configContainer[AWARD_ENGINE_CONFIG_KEY]
+    : {};
+
+  return {
+    ordinaryHours: {
+      weeklyTargetHours: toPositiveNumber(rawConfig.weeklyTargetHours),
+      maxPerDayHours: toPositiveNumber(rawConfig.maxPerDayHours),
+      minPaidOrdinaryHours: toPositiveNumber(rawConfig.minPaidOrdinaryHours),
+      rosteredDayOffAccrualHours: toPositiveNumber(rawConfig.rosteredDayOffAccrualHours),
+      requireOrdinaryReconciliation:
+        typeof rawConfig.requireOrdinaryReconciliation === "boolean"
+          ? rawConfig.requireOrdinaryReconciliation
+          : false,
+    },
+    rounding: {
+      intervalMinutes: toPositiveNumber(rawConfig.intervalMinutes) ?? 15,
+      thresholdMinutes: toPositiveNumber(rawConfig.thresholdMinutes) ?? 7,
+    },
+    publicHoliday: {
+      payCode:
+        typeof rawConfig.payCode === "string" ? rawConfig.payCode : "PH",
+      defaultDayType:
+        typeof rawConfig.defaultDayType === "string"
+          ? rawConfig.defaultDayType
+          : "Public Holiday",
+    },
+  };
+}
+
+export function mergeAwardEngineConfig(
+  fieldVisibilityConfig: Json | null | undefined,
+  awardEngineConfig: AwardEngineConfig
+): Json {
+  const base = isRecord(fieldVisibilityConfig) ? { ...fieldVisibilityConfig } : {};
+
+  return {
+    ...base,
+    [AWARD_ENGINE_CONFIG_KEY]: {
+      ordinaryHours: {
+        weeklyTargetHours: toPositiveNumber(awardEngineConfig.ordinaryHours?.weeklyTargetHours) ?? undefined,
+        maxPerDayHours: toPositiveNumber(awardEngineConfig.ordinaryHours?.maxPerDayHours) ?? undefined,
+        minPaidOrdinaryHours: toPositiveNumber(awardEngineConfig.ordinaryHours?.minPaidOrdinaryHours) ?? undefined,
+        rosteredDayOffAccrualHours: toPositiveNumber(
+          awardEngineConfig.ordinaryHours?.rosteredDayOffAccrualHours
+        ) ?? undefined,
+        requireOrdinaryReconciliation:
+          awardEngineConfig.ordinaryHours?.requireOrdinaryReconciliation ?? false,
+      },
+      rounding: {
+        intervalMinutes: toPositiveNumber(awardEngineConfig.rounding?.intervalMinutes) ?? 15,
+        thresholdMinutes: toPositiveNumber(awardEngineConfig.rounding?.thresholdMinutes) ?? 7,
+      },
+      publicHoliday: {
+        payCode: typeof awardEngineConfig.publicHoliday?.payCode === "string"
+          ? awardEngineConfig.publicHoliday.payCode
+          : "PH",
+        defaultDayType: typeof awardEngineConfig.publicHoliday?.defaultDayType === "string"
+          ? awardEngineConfig.publicHoliday.defaultDayType
+          : "Public Holiday",
+      },
+    },
+  } as Json;
+}
+
 export function resolveGracePeriodForUser(
   config: GracePeriodsConfig | null | undefined,
   userId: string,

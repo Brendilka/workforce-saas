@@ -95,8 +95,26 @@ export interface HRImportConfig {
 }
 
 // Field Visibility Config structure
+export interface AwardEngineConfig {
+  ordinaryHours?: {
+    weeklyTargetHours?: number;
+    maxPerDayHours?: number;
+    minPaidOrdinaryHours?: number;
+    rosteredDayOffAccrualHours?: number;
+    requireOrdinaryReconciliation?: boolean;
+  };
+  rounding?: {
+    intervalMinutes?: number;
+    thresholdMinutes?: number;
+  };
+  publicHoliday?: {
+    payCode?: string;
+    defaultDayType?: string;
+  };
+}
+
 export interface FieldVisibilityConfig {
-  [pageName: string]: PageConfig;
+  [pageName: string]: unknown;
 }
 
 export interface PageConfig {

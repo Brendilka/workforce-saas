@@ -83,6 +83,13 @@ const adminFeatures = [
     disabled: false,
   },
   {
+    title: "AI Award & EBA Configuration",
+    href: "/admin/award-config",
+    icon: FileSpreadsheet,
+    description: "AI-powered configuration of awards and enterprise agreements",
+    disabled: false,
+  },
+  {
     title: "Department Management",
     href: "/admin/departments",
     icon: Building2,

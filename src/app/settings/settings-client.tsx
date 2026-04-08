@@ -19,9 +19,13 @@ import type { DayPeriodConfig } from "@/lib/types/database";
 import { getPeriodColor, DEFAULT_PERIOD_COLORS } from "@/lib/day-period-colors";
 import {
   ALL_DEPARTMENTS_GRACE_ID,
+  extractAwardEngineConfig,
   extractGracePeriodsConfig,
+  getDefaultAwardEngineConfig,
   getDefaultGracePeriodsConfig,
+  mergeAwardEngineConfig,
   mergeGracePeriodsConfig,
+  type AwardEngineConfig,
   type GracePeriodValue,
   type GracePeriodsConfig,
 } from "@/lib/timecard";
@@ -97,6 +101,10 @@ export function SettingsClient() {
   const [newGraceUserId, setNewGraceUserId] = useState("");
   const [newDepartmentId, setNewDepartmentId] = useState(ALL_DEPARTMENTS_GRACE_ID);
   const [fieldVisibilityConfig, setFieldVisibilityConfig] = useState<Record<string, unknown>>({});
+  const [awardEngineConfig, setAwardEngineConfig] = useState<AwardEngineConfig>(
+    getDefaultAwardEngineConfig()
+  );
+  const [isSavingAwardEngineConfig, setIsSavingAwardEngineConfig] = useState(false);
   const [dayPeriodsError, setDayPeriodsError] = useState<string | null>(null);
   const dayBarRef = useRef<HTMLDivElement>(null);
   const draggingHandleIndex = useRef<number | null>(null);
@@ -402,6 +410,7 @@ export function SettingsClient() {
             : {};
         setFieldVisibilityConfig(loadedFieldVisibilityConfig);
         setGracePeriodsConfig(extractGracePeriodsConfig(loadedFieldVisibilityConfig as any));
+        setAwardEngineConfig(extractAwardEngineConfig(loadedFieldVisibilityConfig as any));
       } else {
         setGracePeriodsConfig(getDefaultGracePeriodsConfig());
       }
@@ -580,6 +589,73 @@ export function SettingsClient() {
     const rounded = Math.round(minHoursBetweenShifts * 4) / 4;
     const clamped = Math.max(0, Math.min(23, rounded));
     setMinHoursBetweenShifts(clamped);
+  };
+
+  const updateAwardEngineValue = (
+    path: Array<keyof AwardEngineConfig | string>,
+    value: string | number | boolean
+  ) => {
+    setAwardEngineConfig((current) => {
+      const next = { ...current } as any;
+      let target: any = next;
+      for (let i = 0; i < path.length - 1; i += 1) {
+        const segment = path[i];
+        if (typeof target[segment] !== "object" || target[segment] === null) {
+          target[segment] = {};
+        }
+        target = target[segment];
+      }
+      target[path[path.length - 1]] = value;
+      return next;
+    });
+  };
+
+  const saveAwardEngineSettings = async () => {
+    if (!tenantId) {
+      setNotification({
+        type: "error",
+        message: "Unable to determine tenant. Please refresh and try again.",
+      });
+      return;
+    }
+
+    setIsSavingAwardEngineConfig(true);
+
+    try {
+      const nextFieldVisibilityConfig = mergeAwardEngineConfig(
+        fieldVisibilityConfig as any,
+        awardEngineConfig
+      );
+
+      const { error } = await supabase.from("tenant_config").upsert(
+        {
+          tenant_id: tenantId,
+          field_visibility_config: nextFieldVisibilityConfig as any,
+        } as any,
+        {
+          onConflict: "tenant_id",
+        }
+      );
+
+      if (error) {
+        throw error;
+      }
+
+      setFieldVisibilityConfig((nextFieldVisibilityConfig || {}) as Record<string, unknown>);
+      setNotification({
+        type: "success",
+        message: "Pay rule settings saved successfully!",
+      });
+    } catch (error) {
+      console.error("Error saving pay rule settings:", error);
+      setNotification({
+        type: "error",
+        message:
+          error instanceof Error ? error.message : "Failed to save pay rule settings.",
+      });
+    } finally {
+      setIsSavingAwardEngineConfig(false);
+    }
   };
 
   // Day periods: move boundary between period[index] and period[index+1]
@@ -851,6 +927,193 @@ export function SettingsClient() {
             <div className="flex gap-3 pt-4">
               <Button onClick={saveSettings} disabled={isSaving}>
                 {isSaving ? "Saving..." : "Save Settings"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card className="max-w-5xl p-6">
+        {isLoading ? (
+          <div className="text-sm text-gray-500">Loading pay rule configuration...</div>
+        ) : (
+          <div className="space-y-6">
+            <div>
+              <Label className="text-base font-semibold mb-2 block">Award / Pay Rule Settings</Label>
+              <p className="text-sm text-gray-500">
+                Configure tenant-wide pay rule defaults for ordinary hours, rounding, and public holiday classification.
+                These values will become the basis for T&amp;A and payroll preview logic in the timecard engine.
+              </p>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-lg border border-gray-200 p-4 bg-white">
+                <Label className="text-sm font-semibold mb-3 block">Ordinary hour rules</Label>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="weeklyTargetHours" className="mb-2 block text-sm font-medium">
+                      Total ordinary hours per week
+                    </Label>
+                    <Input
+                      id="weeklyTargetHours"
+                      type="number"
+                      min="0"
+                      step="0.25"
+                      value={awardEngineConfig.ordinaryHours?.weeklyTargetHours ?? 38}
+                      onChange={(event) =>
+                        updateAwardEngineValue(
+                          ["ordinaryHours", "weeklyTargetHours"],
+                          Number(event.target.value)
+                        )
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="maxPerDayHours" className="mb-2 block text-sm font-medium">
+                      Max ordinary hours per day
+                    </Label>
+                    <Input
+                      id="maxPerDayHours"
+                      type="number"
+                      min="0"
+                      step="0.25"
+                      value={awardEngineConfig.ordinaryHours?.maxPerDayHours ?? 10}
+                      onChange={(event) =>
+                        updateAwardEngineValue(
+                          ["ordinaryHours", "maxPerDayHours"],
+                          Number(event.target.value)
+                        )
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="minPaidOrdinaryHours" className="mb-2 block text-sm font-medium">
+                      Minimum hours to pay ordinary
+                    </Label>
+                    <Input
+                      id="minPaidOrdinaryHours"
+                      type="number"
+                      min="0"
+                      step="0.25"
+                      value={awardEngineConfig.ordinaryHours?.minPaidOrdinaryHours ?? 4}
+                      onChange={(event) =>
+                        updateAwardEngineValue(
+                          ["ordinaryHours", "minPaidOrdinaryHours"],
+                          Number(event.target.value)
+                        )
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="rosteredDayOffAccrualHours" className="mb-2 block text-sm font-medium">
+                      RDO accrual hours per day
+                    </Label>
+                    <Input
+                      id="rosteredDayOffAccrualHours"
+                      type="number"
+                      min="0"
+                      step="0.25"
+                      value={awardEngineConfig.ordinaryHours?.rosteredDayOffAccrualHours ?? 0}
+                      onChange={(event) =>
+                        updateAwardEngineValue(
+                          ["ordinaryHours", "rosteredDayOffAccrualHours"],
+                          Number(event.target.value)
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="requireOrdinaryReconciliation"
+                      type="checkbox"
+                      checked={awardEngineConfig.ordinaryHours?.requireOrdinaryReconciliation ?? false}
+                      onChange={(event) =>
+                        updateAwardEngineValue(
+                          ["ordinaryHours", "requireOrdinaryReconciliation"],
+                          event.target.checked
+                        )
+                      }
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <Label htmlFor="requireOrdinaryReconciliation" className="text-sm font-medium">
+                      Require ordinary hours reconciliation check before payroll posting
+                    </Label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 p-4 bg-white">
+                <Label className="text-sm font-semibold mb-3 block">Rounding and public holiday</Label>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="roundingIntervalMinutes" className="mb-2 block text-sm font-medium">
+                      Rounding interval (minutes)
+                    </Label>
+                    <Input
+                      id="roundingIntervalMinutes"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={awardEngineConfig.rounding?.intervalMinutes ?? 15}
+                      onChange={(event) =>
+                        updateAwardEngineValue(
+                          ["rounding", "intervalMinutes"],
+                          Number(event.target.value)
+                        )
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="roundingThresholdMinutes" className="mb-2 block text-sm font-medium">
+                      Rounding threshold (minutes)
+                    </Label>
+                    <Input
+                      id="roundingThresholdMinutes"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={awardEngineConfig.rounding?.thresholdMinutes ?? 7}
+                      onChange={(event) =>
+                        updateAwardEngineValue(
+                          ["rounding", "thresholdMinutes"],
+                          Number(event.target.value)
+                        )
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="publicHolidayPayCode" className="mb-2 block text-sm font-medium">
+                      Public holiday pay code
+                    </Label>
+                    <Input
+                      id="publicHolidayPayCode"
+                      type="text"
+                      value={awardEngineConfig.publicHoliday?.payCode ?? "PH"}
+                      onChange={(event) =>
+                        updateAwardEngineValue(["publicHoliday", "payCode"], event.target.value)
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="publicHolidayDayType" className="mb-2 block text-sm font-medium">
+                      Public holiday day type label
+                    </Label>
+                    <Input
+                      id="publicHolidayDayType"
+                      type="text"
+                      value={awardEngineConfig.publicHoliday?.defaultDayType ?? "Public Holiday"}
+                      onChange={(event) =>
+                        updateAwardEngineValue(["publicHoliday", "defaultDayType"], event.target.value)
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button onClick={saveAwardEngineSettings} disabled={isSavingAwardEngineConfig}>
+                {isSavingAwardEngineConfig ? "Saving..." : "Save Pay Rule Settings"}
               </Button>
             </div>
           </div>
