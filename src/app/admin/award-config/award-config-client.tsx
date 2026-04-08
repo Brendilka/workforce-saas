@@ -1,219 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, FileText, Settings, CheckCircle } from "lucide-react";
-
-// Enhanced AI processing function
-// In a real implementation, this would:
-// 1. Take company details as input
-// 2. Search government databases for applicable awards/EBAs
-// 3. Fetch the actual documents
-// 4. Use AI to parse and extract parameters
-function processAwards(companyDetails: string, industry: string, location: string, payCodes: string, policies: string): Promise<{ config: any; foundDocuments: any[] }> {
-  // Simulate AI-powered award discovery based on company inputs
-  // Real implementation would query Fair Work APIs with company criteria
-
-  const awardDatabase = {
-    "retail": [
-      {
-        code: "MA000004",
-        name: "Retail Industry Award 2020",
-        printId: "CA000004",
-        matterNumber: "M2019/001",
-        industry: "Retail",
-        expiryDate: "2024-12-31",
-        weeklyHours: 38,
-        nightPenalty: 0.3
-      },
-      {
-        code: "MA000005",
-        name: "Fast Food Industry Award 2020",
-        printId: "CA000005",
-        matterNumber: "M2019/002",
-        industry: "Hospitality",
-        expiryDate: "2024-12-31",
-        weeklyHours: 38,
-        nightPenalty: 0.25
-      }
-    ],
-    "manufacturing": [
-      {
-        code: "MA000020",
-        name: "Manufacturing and Associated Industries Award 2020",
-        printId: "CA000020",
-        matterNumber: "M2019/020",
-        industry: "Manufacturing",
-        expiryDate: "2024-12-31",
-        weeklyHours: 38,
-        nightPenalty: 0.3
-      }
-    ],
-    "hospitality": [
-      { code: "MA000009", name: "Hospitality Industry (General) Award 2020", weeklyHours: 38, nightPenalty: 0.3 }
-    ],
-    "healthcare": [
-      { code: "MA000027", name: "Nurses Award 2020", weeklyHours: 38, nightPenalty: 0.3 },
-      { code: "MA000028", name: "Health Professionals Award 2020", weeklyHours: 38, nightPenalty: 0.25 }
-    ],
-    "mining": [
-      {
-        code: "MA000013",
-        name: "Mining Industry Award 2020",
-        printId: "CA000013",
-        matterNumber: "M2019/013",
-        industry: "Mining",
-        expiryDate: "2024-12-31",
-        weeklyHours: 36,
-        nightPenalty: 0.5
-      },
-      {
-        code: "MA000001",
-        name: "Black Coal Mining Industry Award 2020",
-        printId: "CA000001",
-        matterNumber: "M2019/001",
-        industry: "Mining",
-        expiryDate: "2024-12-31",
-        weeklyHours: 35,
-        nightPenalty: 0.5
-      }
-    ]
-  };
-
-  const ebaDatabase = {
-    "retail": [
-      {
-        id: "AE000001",
-        name: "Acme Retail Enterprise Agreement 2024",
-        matterNumber: "AG2024/001",
-        industry: "Retail",
-        approvalDate: "2024-01-15",
-        expiryDate: "2027-01-14",
-        weeklyHours: 37.5,
-        hasRDO: true
-      },
-      {
-        id: "AE000045",
-        name: "BigBox Retail Collective Agreement 2023",
-        matterNumber: "AG2023/045",
-        industry: "Retail",
-        approvalDate: "2023-06-20",
-        expiryDate: "2026-06-19",
-        weeklyHours: 36,
-        hasRDO: false
-      }
-    ],
-    "mining": [
-      {
-        id: "AE000089",
-        name: "Rio Tinto Mining Enterprise Agreement 2024",
-        matterNumber: "AG2024/089",
-        industry: "Mining",
-        approvalDate: "2024-03-10",
-        expiryDate: "2027-03-09",
-        weeklyHours: 35,
-        hasRDO: true
-      }
-    ]
-  };
-
-  // AI-like logic to find applicable awards based on company inputs
-  let applicableAwards: any[] = [];
-  let applicableEBAs: any[] = [];
-  let weeklyHours = 38; // Default
-  let nightPenalty = 0.3;
-
-  // Search awards by industry
-  const industryKey = industry.toLowerCase() as keyof typeof awardDatabase;
-  if (industryKey && awardDatabase[industryKey]) {
-    applicableAwards = awardDatabase[industryKey];
-    // Use the first award's parameters as base
-    weeklyHours = applicableAwards[0].weeklyHours;
-    nightPenalty = applicableAwards[0].nightPenalty;
-  }
-
-  // Search EBAs by industry (EBAs are more specific to companies)
-  const ebaIndustryKey = industry.toLowerCase() as keyof typeof ebaDatabase;
-  if (ebaIndustryKey && ebaDatabase[ebaIndustryKey]) {
-    applicableEBAs = ebaDatabase[ebaIndustryKey];
-    // EBA overrides award if found
-    if (applicableEBAs.length > 0) {
-      weeklyHours = applicableEBAs[0].weeklyHours;
-    }
-  }
-
-  // Simulate AI processing of company details for additional context
-  let hasRDO = applicableEBAs.some(eba => eba.hasRDO);
-  if (companyDetails.toLowerCase().includes("mining") || companyDetails.toLowerCase().includes("construction")) {
-    weeklyHours = 36; // Different for some industries
-  }
-
-  const foundDocs = [
-    ...applicableAwards.map(award => ({
-      type: 'Award',
-      code: award.code,
-      name: award.name,
-      printId: award.printId,
-      matterNumber: award.matterNumber,
-      industry: award.industry,
-      expiryDate: award.expiryDate
-    })),
-    ...applicableEBAs.map(eba => ({
-      type: 'EBA',
-      code: eba.id,
-      name: eba.name,
-      matterNumber: eba.matterNumber,
-      industry: eba.industry,
-      approvalDate: eba.approvalDate,
-      expiryDate: eba.expiryDate
-    }))
-  ];
-
-  const extractedConfig = {
-    ordinaryHours: {
-      weeklyTarget: weeklyHours,
-      maxPerDay: 10,
-      minPaid: 4,
-      rdoAccrual: hasRDO || policies.includes("RDO"),
-      reconciliationEnabled: policies.includes("reconciliation"),
-    },
-    overtime: {
-      threshold: 8,
-      weekdayRate: 1.5,
-      weekendRate: 2.0,
-      publicHolidayRate: 2.5,
-    },
-    shiftPenalties: {
-      nightShift: nightPenalty,
-      weekend: 0.5,
-      publicHoliday: 1.0,
-    },
-    allowances: [
-      { name: "Meal Allowance", amount: 15.0, conditions: "After 8 hours" },
-      { name: "First Aid", amount: 5.0, conditions: "Certified first aider" },
-    ],
-    rounding: {
-      interval: policies.includes("15 minutes") ? 15 : 15,
-      threshold: policies.includes("7 minutes") ? 7 : 7,
-    },
-    leave: {
-      annualAccrual: 4,
-      sickLeave: 10,
-    },
-    publicHoliday: {
-      payCode: "PH",
-      dayType: "non-working",
-    },
-  };
-
-  return new Promise((resolve) => {
-    setTimeout(() => resolve({ config: extractedConfig, foundDocuments: foundDocs }), 2000);
-  });
-}
 
 interface AwardConfigClientProps {
   tenantId: string;
@@ -225,10 +19,39 @@ export function AwardConfigClient({ tenantId }: AwardConfigClientProps) {
   const [location, setLocation] = useState("");
   const [payCodes, setPayCodes] = useState("");
   const [policies, setPolicies] = useState("");
+  const [awardTable, setAwardTable] = useState<any[] | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [extractedConfig, setExtractedConfig] = useState<any>(null);
   const [foundDocuments, setFoundDocuments] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+
+  const parseAwardTableFile = (file: File | null) => {
+    if (!file) {
+      setAwardTable(null);
+      setUploadMessage(null);
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setUploadMessage("Only CSV uploads are supported currently. Please upload an awards table in CSV format.");
+      setAwardTable(null);
+      return;
+    }
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        setAwardTable(results.data as any[]);
+        setUploadMessage(`Loaded ${results.data.length} award table rows from ${file.name}.`);
+      },
+      error: (error) => {
+        setAwardTable(null);
+        setUploadMessage(`Failed to parse award table CSV: ${error.message}`);
+      },
+    });
+  };
 
   const handleProcess = async () => {
     if (!companyDetails || !industry) {
@@ -241,9 +64,34 @@ export function AwardConfigClient({ tenantId }: AwardConfigClientProps) {
     setExtractedConfig(null);
 
     try {
-      const result = await processAwards(companyDetails, industry, location, payCodes, policies);
-      setExtractedConfig(result.config);
-      setFoundDocuments(result.foundDocuments);
+      const response = await fetch("/api/admin/award-config/process", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          companyDetails,
+          industry,
+          location,
+          payCodes,
+          policies,
+          awardTable,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || "Failed to process awards. Please try again.");
+      } else {
+        const config = data.extractedConfig || {};
+        // Normalise allowances: AI may return an object instead of an array
+        if (config.allowances && !Array.isArray(config.allowances)) {
+          config.allowances = Object.entries(config.allowances).map(([name, amount]) => ({ name, amount }));
+        }
+        setExtractedConfig(config);
+        setFoundDocuments(data.foundDocuments || []);
+      }
     } catch (err) {
       setError("Failed to process awards. Please try again.");
     } finally {
@@ -344,6 +192,18 @@ export function AwardConfigClient({ tenantId }: AwardConfigClientProps) {
               onChange={(e) => setPolicies(e.target.value)}
               rows={3}
             />
+          </div>
+
+          <div>
+            <Label htmlFor="award-table">Award / EBA Table Upload (Optional)</Label>
+            <input
+              id="award-table"
+              type="file"
+              accept=".csv"
+              onChange={(e) => parseAwardTableFile(e.target.files?.[0] || null)}
+              className="w-full text-sm text-gray-700 file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700"
+            />
+            {uploadMessage && <p className="mt-2 text-sm text-gray-600">{uploadMessage}</p>}
           </div>
 
           {error && (
@@ -513,7 +373,7 @@ export function AwardConfigClient({ tenantId }: AwardConfigClientProps) {
                         <p className="font-medium">{allowance.name}</p>
                         <p className="text-sm text-gray-600">{allowance.conditions}</p>
                       </div>
-                      <p className="font-semibold">${allowance.amount.toFixed(2)}</p>
+                      <p className="font-semibold">{typeof allowance.amount === 'number' ? `$${allowance.amount.toFixed(2)}` : String(allowance.amount)}</p>
                     </div>
                   ))}
                 </div>
