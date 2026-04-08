@@ -13,6 +13,82 @@ interface AwardConfigClientProps {
   tenantId: string;
 }
 
+// Extract the first number found in a value (for fields that may come as "38 hours" or 38)
+function extractNum(val: unknown): string {
+  if (val === undefined || val === null || val === "") return "";
+  if (typeof val === "number") return String(val);
+  const m = String(val).match(/(\d+(?:\.\d+)?)/); 
+  return m ? m[1] : "";
+}
+
+// Parse a percentage value to a decimal multiplier ("125%" → 1.25, 1.25 → 1.25, 125 → 1.25)
+function parsePct(val: unknown): number | "" {
+  if (val === undefined || val === null || val === "") return "";
+  if (typeof val === "number") return val > 10 ? val / 100 : val;
+  const m = String(val).match(/(\d+(?:\.\d+)?)/);
+  if (!m) return "";
+  const n = parseFloat(m[1]);
+  return n > 10 ? n / 100 : n;
+}
+
+// Render a penalty multiplier as a percentage string (1.25 → "125%")
+function fmtPct(val: number | ""): string {
+  if (val === "") return "—";
+  return `${(val * 100).toFixed(0)}%`;
+}
+
+function normalizeExtractedConfig(raw: any) {
+  if (!raw) return raw;
+
+  const oh = raw.ordinaryHours || {};
+  const ordinaryHours = {
+    weeklyTarget: extractNum(oh.weeklyTarget ?? oh.weekly ?? oh.weeklyHours ?? oh.standardWeeklyHours),
+    maxPerDay: extractNum(oh.maxPerDay ?? oh.daily ?? oh.dailyHours ?? oh.maxDailyHours),
+    minPaid: extractNum(oh.minPaid ?? oh.minimumHours ?? oh.minHours ?? oh.minimumEngagement),
+    rdoAccrual: !!(oh.rdoAccrual ?? oh.rdo),
+  };
+
+  const ot = raw.overtime || {};
+  const overtime = {
+    threshold: extractNum(ot.threshold ?? ot.weeklyThreshold ?? ot.afterHours ?? ot.after),
+    weekdayRate: extractNum(ot.weekdayRate ?? ot.weekday ?? ot.ordinaryRate ?? ot.rate),
+    weekendRate: extractNum(ot.weekendRate ?? ot.weekend ?? ot.saturdayRate),
+    publicHolidayRate: extractNum(ot.publicHolidayRate ?? ot.publicHoliday ?? ot.holidayRate),
+  };
+
+  const sp = raw.shiftPenalties || {};
+  const shiftPenalties = {
+    nightShift: parsePct(sp.nightShift ?? sp.night ?? sp.nightShiftPenalty ?? sp.nightPenalty),
+    weekend: parsePct(sp.weekend ?? sp.weekendPenalty ?? sp.saturday),
+    publicHoliday: parsePct(sp.publicHoliday ?? sp.publicHolidayPenalty ?? sp.holiday),
+  };
+
+  let allowances = raw.allowances || [];
+  if (!Array.isArray(allowances)) {
+    allowances = Object.entries(allowances).map(([name, amount]) => ({ name, amount }));
+  }
+
+  const ro = raw.rounding || {};
+  const rounding = {
+    interval: extractNum(ro.interval ?? ro.payrollRounding ?? ro.roundingInterval ?? ro.roundTo),
+    threshold: extractNum(ro.threshold ?? ro.gracePeriod ?? ro.minimumIncrement ?? ro.snap),
+  };
+
+  const lv = raw.leave || {};
+  const leave = {
+    annualAccrual: extractNum(lv.annualAccrual ?? lv.annualLeave ?? lv.annual),
+    sickLeave: extractNum(lv.sickLeave ?? lv.personalLeave ?? lv.sick ?? lv.personal),
+  };
+
+  const ph = raw.publicHoliday || {};
+  const publicHoliday = {
+    payCode: ph.payCode ?? ph.rate ?? ph.code ?? "",
+    dayType: ph.dayType ?? ph.type ?? ph.substituteDay ?? ph.substitutionPolicy ?? "",
+  };
+
+  return { ordinaryHours, overtime, shiftPenalties, allowances, rounding, leave, publicHoliday };
+}
+
 export function AwardConfigClient({ tenantId }: AwardConfigClientProps) {
   const [companyDetails, setCompanyDetails] = useState("");
   const [industry, setIndustry] = useState("");
@@ -84,12 +160,7 @@ export function AwardConfigClient({ tenantId }: AwardConfigClientProps) {
       if (!response.ok) {
         setError(data.error || "Failed to process awards. Please try again.");
       } else {
-        const config = data.extractedConfig || {};
-        // Normalise allowances: AI may return an object instead of an array
-        if (config.allowances && !Array.isArray(config.allowances)) {
-          config.allowances = Object.entries(config.allowances).map(([name, amount]) => ({ name, amount }));
-        }
-        setExtractedConfig(config);
+        setExtractedConfig(normalizeExtractedConfig(data.extractedConfig || {}));
         setFoundDocuments(data.foundDocuments || []);
       }
     } catch (err) {
@@ -350,15 +421,15 @@ export function AwardConfigClient({ tenantId }: AwardConfigClientProps) {
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <Label className="text-sm font-medium">Night Shift</Label>
-                    <p className="text-sm text-gray-600">{(extractedConfig.shiftPenalties.nightShift * 100).toFixed(0)}% penalty</p>
+                    <p className="text-sm text-gray-600">{fmtPct(extractedConfig.shiftPenalties.nightShift)} penalty</p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium">Weekend</Label>
-                    <p className="text-sm text-gray-600">{(extractedConfig.shiftPenalties.weekend * 100).toFixed(0)}% penalty</p>
+                    <p className="text-sm text-gray-600">{fmtPct(extractedConfig.shiftPenalties.weekend)} penalty</p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium">Public Holiday</Label>
-                    <p className="text-sm text-gray-600">{(extractedConfig.shiftPenalties.publicHoliday * 100).toFixed(0)}% penalty</p>
+                    <p className="text-sm text-gray-600">{fmtPct(extractedConfig.shiftPenalties.publicHoliday)} penalty</p>
                   </div>
                 </div>
               </div>
